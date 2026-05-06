@@ -1,0 +1,11 @@
+services:
+  bantukos-wa-bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      # Session WA dan data persistent
+      - ./data:/app/data
+      # Baca listing dari bantukos-bot (read-only)
+      - /data/bantukos/bantukos.db:/app/data/bantukos.db:ro
+    env_file:
+      - .env
