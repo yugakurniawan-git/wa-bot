@@ -240,12 +240,17 @@ async function handleOwnerCommand(msg, body) {
         return ownerReply(msg, `✅ Listing *#${id}* (${row.location}) ditandai *terverifikasi* — kamar masih kosong.`);
     }
 
-    // check add [nomor] — manual tambah nomor ke daftar owner (untuk test)
-    const addMatch = lower.match(/^check add\s+(\d+)$/);
+    // check add [nomor] — manual tambah nomor ke daftar intercept
+    const addMatch = lower.match(/^check add\s+([\d\s\-+.]+)$/);
     if (addMatch) {
         const num = normalizePhone(addMatch[1]);
+        if (!num || num.length < 8) return ownerReply(msg, `❌ Format nomor tidak valid: *${addMatch[1].trim()}*`);
         checkedOwnerNumbers.add(num);
-        return ownerReply(msg, `✅ *${num}* ditambahkan ke daftar owner. Coba balas dari nomor itu — bot harus diam.`);
+        // Kalau ada di DB, load juga LID-nya supaya intercept bisa match langsung
+        const listing = getListingByContact(num);
+        if (listing?.contact_lid) checkedOwnerNumbers.add(listing.contact_lid);
+        const lidInfo = listing?.contact_lid ? ` (LID dimuat: ${listing.contact_lid})` : '';
+        return ownerReply(msg, `✅ *${num}* ditambahkan ke daftar intercept.${lidInfo}\nOwner yang balas dari nomor ini → bot akan diam & forwardkan ke sini.`);
     }
 
     // check preview — kirim contoh pesan ke self-chat
@@ -350,10 +355,16 @@ client.on('message', async (msg) => {
     const directMatch = checkedOwnerNumbers.has(msg.from) ||
                         (phoneFromId && checkedOwnerNumbers.has(normalizePhone(phoneFromId)));
     // Kalau tidak direct match dan format @lid, coba resolve via getContact()
-    if (!directMatch && !phoneFromId && msg.from.endsWith('@lid')) {
+    if (!directMatch && msg.from.endsWith('@lid')) {
         try {
             const contact = await msg.getContact();
             phoneFromId = contact.number || '';
+            // Kalau nomor ini ternyata ada di checkedOwnerNumbers, simpan LID ke Set+DB
+            if (phoneFromId && checkedOwnerNumbers.has(normalizePhone(phoneFromId))) {
+                checkedOwnerNumbers.add(msg.from);
+                const listing = getListingByContact(phoneFromId);
+                if (listing?.id) saveContactLid(listing.id, msg.from);
+            }
         } catch {}
     }
     const isOwner = directMatch ||
