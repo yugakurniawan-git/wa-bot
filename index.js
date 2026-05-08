@@ -279,25 +279,28 @@ async function handleOwnerCommand(msg, body) {
 client.on('message_create', async (msg) => {
     if (!msg.fromMe) return;
 
-    // Capture selfLid dari dua kemungkinan format WA
+    // Capture selfLid — gunakan msg.id.remote sebagai anchor yang aman.
+    // msg.id.remote = chat ID (@c.us), konsisten tanpa tergantung format @lid.
     if (!selfLid) {
         if (msg.from && msg.from.endsWith('@lid')) {
-            // Normal outgoing: from = LID bot
+            // Outgoing: msg.from adalah LID bot sendiri
             selfLid = msg.from;
-            console.log(`📌 Bot LID captured (from): ${selfLid}`);
-        } else if (msg.from === selfJid && msg.to && msg.to.endsWith('@lid')) {
-            // Self-chat: from = @c.us, to = LID bot sendiri
+            console.log(`📌 selfLid captured (from): ${selfLid}`);
+        } else if (msg.id?.remote === selfJid && msg.to && msg.to.endsWith('@lid')) {
+            // Self-chat terkonfirmasi via msg.id.remote — baru boleh pakai msg.to sebagai selfLid
             selfLid = msg.to;
-            console.log(`📌 Bot LID captured (self-chat to): ${selfLid}`);
+            console.log(`📌 selfLid captured (self-chat): ${selfLid}`);
         }
     }
 
     // Skip bot reply (reply selalu punya quoted message, user command tidak)
     if (msg.hasQuotedMsg) return;
 
-    // Self-chat: hanya kalau to === selfJid atau to === selfLid yang sudah terverifikasi
-    // JANGAN pakai fallback @lid broad — bisa match pesan ke owner!
-    const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
+    // Self-chat: cek via msg.id.remote (paling reliable) ATAU msg.to === selfJid/selfLid
+    const remote = msg.id?.remote || '';
+    const isSelfChat = remote === selfJid ||
+                       msg.to === selfJid ||
+                       (selfLid && (remote === selfLid || msg.to === selfLid));
     if (!isSelfChat) return;
 
     const body = (msg.body || '').trim();
