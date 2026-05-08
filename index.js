@@ -86,6 +86,7 @@ function formatDetail(row) {
         `🏷️ ${row.status} | ${row.source || 'facebook'}`,
         `📅 ${(row.created_at || '').substring(0, 10)}`,
         urls.length ? `\n🖼️ Foto: ${urls.slice(0, 3).join('\n')}` : '',
+        row.source_url ? `\n🔗 Post asli: ${row.source_url}` : '',
         rawSnippet ? `\n📝 Info:\n${rawSnippet}` : '',
     ].filter(Boolean).join('\n');
 }

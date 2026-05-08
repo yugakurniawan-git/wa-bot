@@ -72,7 +72,8 @@ function getById(id) {
         const db = getDb();
         const row = db.prepare(`
             SELECT id, location, price, contact, source, status,
-                   raw_text, caption, cloudinary_urls, created_at
+                   raw_text, caption, cloudinary_urls, created_at,
+                   COALESCE(source_url, '') as source_url
             FROM posts WHERE id = ?
         `).get(id);
         db.close();
