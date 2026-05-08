@@ -320,10 +320,16 @@ client.on('message', async (msg) => {
     if (!body) return;
 
     // Cek apakah pengirim adalah owner kos yang pernah kita WA
-    // Cek msg.from langsung ke Set — tidak perlu getContact() yang bisa gagal di LID
-    const phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
+    let phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
+    // Kalau @lid, resolve ke nomor HP via getContact() supaya bisa match ke Set
+    if (!phoneFromId && msg.from.endsWith('@lid')) {
+        try {
+            const contact = await msg.getContact();
+            phoneFromId = contact.number || '';
+        } catch {}
+    }
     const isOwner = checkedOwnerNumbers.has(msg.from) ||
-                    checkedOwnerNumbers.has(phoneFromId) ||
+                    (phoneFromId && checkedOwnerNumbers.has(normalizePhone(phoneFromId))) ||
                     getListingByContact(phoneFromId);
     if (isOwner) {
         const ownerListing = typeof isOwner === 'object' ? isOwner : getListingByContact(phoneFromId);
