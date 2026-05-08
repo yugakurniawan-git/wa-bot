@@ -21,8 +21,6 @@ clearChromiumLocks();
 const { generateReply } = require('./ai');
 const { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats } = require('./database');
 
-// Nomor HP pemilik (tanpa +, misal: 628123456789) — set di .env sebagai OWNER_NUMBER
-const OWNER_NUMBER = process.env.OWNER_NUMBER ? `${process.env.OWNER_NUMBER}@c.us` : null;
 
 // Simpan riwayat percakapan per kontak (in-memory, reset kalau bot restart)
 const conversationHistory = new Map();
@@ -144,22 +142,21 @@ async function handleOwnerCommand(msg, body) {
     );
 }
 
+// Owner command: tangkap pesan yang dikirim dari akun ini sendiri (self-chat / note to self)
+client.on('message_create', async (msg) => {
+    if (!msg.fromMe) return;
+    // Hanya proses pesan ke diri sendiri (chat dengan nomor sendiri)
+    const selfId = client.info && client.info.wid ? client.info.wid._serialized : null;
+    if (!selfId || msg.to !== selfId) return;
+
+    const body = (msg.body || '').trim();
+    if (!body) return;
+
+    console.log(`\n👑 [OWNER] ${body.substring(0, 80)}`);
+    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
+});
+
 client.on('message', async (msg) => {
-    // DEBUG: log semua pengirim supaya bisa verifikasi OWNER_NUMBER
-    if (!msg.fromMe && !msg.from.endsWith('@g.us')) {
-        console.log(`📬 from=${msg.from} | OWNER_NUMBER set=${OWNER_NUMBER} | match=${msg.from === OWNER_NUMBER}`);
-    }
-
-    // Owner command mode
-    if (OWNER_NUMBER && msg.from === OWNER_NUMBER) {
-        const body = (msg.body || '').trim();
-        if (body) {
-            console.log(`\n👑 [OWNER] ${body.substring(0, 80)}`);
-            try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
-        }
-        return;
-    }
-
     // Skip pesan dari diri sendiri
     if (msg.fromMe) return;
 
