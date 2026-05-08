@@ -19,7 +19,11 @@ function clearChromiumLocks() {
 }
 clearChromiumLocks();
 const { generateReply } = require('./ai');
-const { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats } = require('./database');
+const {
+    findListingsByLocation, formatListings,
+    getById, searchAdmin, getRecentAdmin, getDbStats,
+    getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
+} = require('./database');
 
 // Nomor HP pribadi owner (opsional) — format 62xxxxxxxxx tanpa + atau 0
 const OWNER_PHONE = process.env.OWNER_NUMBER || null; // e.g. "6281234567890"
@@ -95,6 +99,57 @@ async function ownerReply(msg, text) {
     return msg.reply(text);
 }
 
+function buildOwnerCheckMessage(listing) {
+    const hour = new Date().getHours();
+    const greeting = hour < 11 ? 'pagi' : hour < 15 ? 'siang' : hour < 18 ? 'sore' : 'malam';
+    return (
+        `Halo kak, selamat ${greeting} 🙏\n\n` +
+        `Maaf mengganggu. Kami dari *Bantu Kos*, layanan bantu survei dan carikan penyewa kos di Bali.\n\n` +
+        `Kami mendapat info ada kos di *${listing.location || 'Bali'}*` +
+        (listing.price ? ` dengan harga *${listing.price}*` : '') +
+        `. Apakah kamarnya saat ini masih tersedia kak?\n\n` +
+        `Kami ada calon penyewa yang sedang cari kos di area tersebut dan ingin survei langsung sebelum DP.\n\n` +
+        `Terima kasih banyak kak 🙏`
+    );
+}
+
+// Kirim WA ke owner listing untuk cek ketersediaan (max 10/run, delay antar pesan)
+async function runOwnerCheck(replyMsg, limit = 10) {
+    const listings = getListingsToCheck(limit);
+    if (!listings.length) {
+        return ownerReply(replyMsg, '✅ Tidak ada listing dengan kontak yang belum dicek.');
+    }
+
+    await ownerReply(replyMsg, `📤 Akan kirim WA ke *${listings.length}* pemilik kos. Mohon tunggu...`);
+
+    let sent = 0, failed = 0;
+    for (const listing of listings) {
+        // Mark SEBELUM kirim — cegah duplicate kalau crash
+        markWaChecked(listing.id);
+
+        const phone = listing.contact.replace(/[\s\-\+]/g, '');
+        const normalized = phone.startsWith('0') ? '62' + phone.slice(1) : phone;
+        const chatId = `${normalized}@c.us`;
+
+        try {
+            const text = buildOwnerCheckMessage(listing);
+            await client.sendMessage(chatId, text);
+            sent++;
+            console.log(`📤 WA terkirim ke #${listing.id} (${normalized})`);
+            // Delay 4-7 detik antar pesan supaya tidak kena spam filter
+            await new Promise(r => setTimeout(r, 4000 + Math.random() * 3000));
+        } catch (e) {
+            failed++;
+            console.error(`❌ Gagal kirim ke #${listing.id}: ${e.message}`);
+        }
+    }
+
+    return ownerReply(replyMsg,
+        `✅ Selesai: *${sent}* terkirim, *${failed}* gagal.\n\n` +
+        `Kalau owner balas & konfirmasi masih kosong, ketik:\n*verify #[id]* untuk mark sebagai terverifikasi.`
+    );
+}
+
 async function handleOwnerCommand(msg, body) {
     const text = body.trim();
     const lower = text.toLowerCase();
@@ -130,6 +185,33 @@ async function handleOwnerCommand(msg, body) {
         return ownerReply(msg, `📋 *15 Listing Terbaru*\n\n${lines.join('\n')}`);
     }
 
+    // verify #63 — mark listing sebagai terverifikasi masih kosong
+    const verifyMatch = lower.match(/^verify\s+#?(\d+)$/);
+    if (verifyMatch) {
+        const id = parseInt(verifyMatch[1]);
+        const row = getById(id);
+        if (!row) return ownerReply(msg, `❌ Listing #${id} tidak ditemukan.`);
+        markVerified(id);
+        return ownerReply(msg, `✅ Listing *#${id}* (${row.location}) ditandai *terverifikasi* — kamar masih kosong.`);
+    }
+
+    // check — lihat listing belum dicek
+    if (lower === 'check' || lower === 'cek owner') {
+        const pending = countPendingCheck();
+        const preview = getListingsToCheck(5);
+        const lines = preview.map(r => `#${r.id} • ${r.location || '—'} • ${r.price || '—'} • 📞 ${r.contact}`);
+        return ownerReply(msg,
+            `📋 *${pending}* listing punya kontak & belum di-WA.\n\n` +
+            (lines.length ? `5 terbaru:\n${lines.join('\n')}\n\n` : '') +
+            `Ketik *check kirim* untuk mulai kirim WA ke owner (max 10).`
+        );
+    }
+
+    // check kirim — kirim WA ke owner listing
+    if (lower === 'check kirim' || lower === 'check send') {
+        return runOwnerCheck(msg, 10);
+    }
+
     // stat / statistik
     if (lower === 'stat' || lower === 'statistik' || lower === 'stats') {
         const s = getDbStats();
@@ -148,10 +230,12 @@ async function handleOwnerCommand(msg, body) {
     return ownerReply(msg,
         `🤖 *Admin Commands:*\n\n` +
         `#63 — detail listing ID 63\n` +
-        `cek #63 — sama\n` +
         `cari sesetan — cari by keyword\n` +
         `list — 15 listing terbaru\n` +
-        `stat — statistik database`
+        `stat — statistik database\n` +
+        `check — lihat listing belum dicek owner\n` +
+        `check kirim — kirim WA ke owner (max 10)\n` +
+        `verify #63 — mark listing sudah dikonfirmasi kosong`
     );
 }
 

@@ -8,6 +8,10 @@ function getDb() {
     return new Database(DB_PATH, { readonly: true });
 }
 
+function getDbWrite() {
+    return new Database(DB_PATH);
+}
+
 /**
  * Cari listing berdasarkan lokasi yang disebutkan user.
  * Kembalikan max 3 listing paling relevan.
@@ -144,4 +148,74 @@ function getDbStats() {
     }
 }
 
-module.exports = { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats };
+/**
+ * Admin: listing dengan kontak yang belum pernah di-WA untuk cek ketersediaan
+ */
+function getListingsToCheck(limit = 10) {
+    try {
+        const db = getDb();
+        const rows = db.prepare(`
+            SELECT id, location, price, contact, source_url
+            FROM posts
+            WHERE contact IS NOT NULL AND contact != ''
+              AND wa_checked_at IS NULL
+              AND status NOT IN ('skipped')
+            ORDER BY id DESC LIMIT ?
+        `).all(limit);
+        db.close();
+        return rows;
+    } catch (err) {
+        console.error('DB error:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Admin: tandai listing sudah di-WA (sebelum kirim, untuk cegah duplicate)
+ */
+function markWaChecked(id) {
+    try {
+        const db = getDbWrite();
+        db.prepare(`UPDATE posts SET wa_checked_at = datetime('now') WHERE id = ?`).run(id);
+        db.close();
+    } catch (err) {
+        console.error('DB markWaChecked error:', err.message);
+    }
+}
+
+/**
+ * Admin: tandai listing sudah diverifikasi masih kosong oleh owner
+ */
+function markVerified(id) {
+    try {
+        const db = getDbWrite();
+        db.prepare(`UPDATE posts SET verified = 1 WHERE id = ?`).run(id);
+        db.close();
+    } catch (err) {
+        console.error('DB markVerified error:', err.message);
+    }
+}
+
+/**
+ * Admin: hitung listing pending untuk dicek
+ */
+function countPendingCheck() {
+    try {
+        const db = getDb();
+        const row = db.prepare(`
+            SELECT COUNT(*) as count FROM posts
+            WHERE contact IS NOT NULL AND contact != ''
+              AND wa_checked_at IS NULL AND status NOT IN ('skipped')
+        `).get();
+        db.close();
+        return row.count;
+    } catch (err) {
+        return 0;
+    }
+}
+
+module.exports = {
+    findListingsByLocation, formatListings,
+    getById, searchAdmin, getRecentAdmin, getDbStats,
+    getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
+};
