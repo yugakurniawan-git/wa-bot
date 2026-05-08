@@ -159,20 +159,28 @@ async function handleOwnerCommand(msg, body) {
 
 // Owner command: tangkap pesan yang dikirim ke diri sendiri (self-chat / note to self)
 client.on('message_create', async (msg) => {
-    // Capture LID bot dari pesan outgoing pertama
-    if (msg.fromMe && msg.from && msg.from.endsWith('@lid') && !selfLid) {
-        selfLid = msg.from;
-        console.log(`📌 Bot LID captured: ${selfLid}`);
-    }
-
     if (!msg.fromMe) return;
 
-    console.log(`📝 mc | busy=${ownerBusy} | from=${msg.from} | to=${msg.to} | selfJid=${selfJid} | selfLid=${selfLid}`);
+    // Capture selfLid dari dua kemungkinan format WA
+    if (!selfLid) {
+        if (msg.from && msg.from.endsWith('@lid')) {
+            // Normal outgoing: from = LID bot
+            selfLid = msg.from;
+            console.log(`📌 Bot LID captured (from): ${selfLid}`);
+        } else if (msg.from === selfJid && msg.to && msg.to.endsWith('@lid')) {
+            // Self-chat: from = @c.us, to = LID bot sendiri
+            selfLid = msg.to;
+            console.log(`📌 Bot LID captured (self-chat to): ${selfLid}`);
+        }
+    }
 
     if (ownerBusy) return;
 
-    // Cek apakah pesan ini ke diri sendiri (self-chat)
-    const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
+    // Self-chat: to === selfJid/@c.us, atau to === selfLid/@lid,
+    // atau pola khas self-chat (from=@c.us, to=@lid)
+    const isSelfChat = msg.to === selfJid ||
+                       (selfLid && msg.to === selfLid) ||
+                       (msg.from === selfJid && msg.to && msg.to.endsWith('@lid'));
     if (!isSelfChat) return;
 
     const body = (msg.body || '').trim();
