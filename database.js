@@ -186,6 +186,19 @@ function markWaChecked(id) {
 /**
  * Admin: tandai listing sudah diverifikasi masih kosong oleh owner
  */
+/**
+ * Simpan LID WA owner supaya persist di DB, bisa di-load saat bot restart
+ */
+function saveContactLid(id, lid) {
+    try {
+        const db = getDbWrite();
+        db.prepare(`UPDATE posts SET contact_lid = ? WHERE id = ?`).run(lid, id);
+        db.close();
+    } catch (err) {
+        console.error('DB saveContactLid error:', err.message);
+    }
+}
+
 function markVerified(id) {
     try {
         const db = getDbWrite();
@@ -239,5 +252,5 @@ module.exports = {
     findListingsByLocation, formatListings,
     getById, searchAdmin, getRecentAdmin, getDbStats,
     getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
-    getListingByContact,
+    getListingByContact, saveContactLid,
 };

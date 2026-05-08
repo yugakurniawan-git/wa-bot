@@ -21,11 +21,11 @@ clearChromiumLocks();
 const {
     getById, searchAdmin, getRecentAdmin, getDbStats,
     getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
-    getListingByContact,
+    getListingByContact, saveContactLid,
 } = require('./database');
 
 // Nomor owner kos yang sudah di-WA — in-memory untuk intercept reply cepat
-// Format: normalized 62xxx (tanpa + atau spasi)
+// Menyimpan: normalized phone (628xxx) DAN LID WA owner (628xxx@lid)
 const checkedOwnerNumbers = new Set();
 
 function normalizePhone(n) {
@@ -35,6 +35,7 @@ function normalizePhone(n) {
 // Identitas bot — diisi saat ready/message_create, support @c.us dan @lid
 let selfJid = null;
 let selfLid = null;
+const SELF_LID_FILE = path.join('data', 'self_lid.txt');
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: 'data/session' }),
@@ -61,17 +62,45 @@ client.on('authenticated', () => {
     console.log('🔐 Berhasil authenticated!');
 });
 
-client.on('ready', () => {
+client.on('ready', async () => {
     selfJid = client.info.wid._serialized;
 
-    // Load semua owner yang pernah di-WA dari DB ke Set supaya intercept langsung jalan
+    // 1. Load selfLid dari file (persist antar restart)
+    try {
+        const saved = fs.readFileSync(SELF_LID_FILE, 'utf8').trim();
+        if (saved && saved.endsWith('@lid')) {
+            selfLid = saved;
+            console.log(`   📌 selfLid: ${selfLid} (dari file)`);
+        }
+    } catch {}
+
+    // 2. Kalau belum ada, cari dari history self-chat
+    if (!selfLid) {
+        try {
+            const selfChat = await client.getChatById(selfJid);
+            const msgs = await selfChat.fetchMessages({ limit: 10 });
+            for (const m of msgs) {
+                if (m.fromMe && m.to && m.to.endsWith('@lid')) {
+                    selfLid = m.to;
+                    fs.writeFileSync(SELF_LID_FILE, selfLid);
+                    console.log(`   📌 selfLid: ${selfLid} (dari history, disimpan)`);
+                    break;
+                }
+            }
+        } catch {}
+    }
+
+    // 3. Load owner numbers DAN LID dari DB ke Set
     try {
         const Database = require('better-sqlite3');
         const db = new Database(process.env.BANTUKOS_DB_PATH || 'data/bantukos.db', { readonly: true });
-        const rows = db.prepare(`SELECT contact FROM posts WHERE wa_checked_at IS NOT NULL`).all();
+        const rows = db.prepare(`SELECT contact, contact_lid FROM posts WHERE wa_checked_at IS NOT NULL`).all();
         db.close();
-        rows.forEach(r => { if (r.contact) checkedOwnerNumbers.add(normalizePhone(r.contact)); });
-        console.log(`   🛡️  Loaded ${checkedOwnerNumbers.size} checked owner numbers`);
+        rows.forEach(r => {
+            if (r.contact) checkedOwnerNumbers.add(normalizePhone(r.contact));
+            if (r.contact_lid) checkedOwnerNumbers.add(r.contact_lid);
+        });
+        console.log(`   🛡️  Loaded ${checkedOwnerNumbers.size} checked owner numbers/LIDs`);
     } catch (e) {
         console.error('   ⚠️ Gagal load checked owners:', e.message);
     }
@@ -79,7 +108,8 @@ client.on('ready', () => {
     console.log('✅ Bantukos WA Bot siap menerima pesan!');
     console.log(`   DB  : ${process.env.BANTUKOS_DB_PATH || 'data/bantukos.db'}`);
     console.log(`   JID : ${selfJid}`);
-    console.log(`   Mode: auto-reply aktif\n`);
+    if (!selfLid) console.log(`   ⚠️  selfLid belum diketahui — kirim 1 pesan ke self-chat untuk aktivasi\n`);
+    else console.log(`   Mode: siap\n`);
 });
 
 client.on('auth_failure', (msg) => {
@@ -145,8 +175,11 @@ async function runOwnerCheck(replyMsg, limit = 10) {
         try {
             const text = buildOwnerCheckMessage(listing);
             const sentMsg = await client.sendMessage(chatId, text);
-            // Simpan LID asli dari sentMsg.to supaya intercept reply bisa match langsung
-            if (sentMsg?.to) checkedOwnerNumbers.add(sentMsg.to);
+            // Simpan LID asli dari sentMsg.to ke memory DAN DB supaya persist antar restart
+            if (sentMsg?.to) {
+                checkedOwnerNumbers.add(sentMsg.to);
+                if (sentMsg.to.endsWith('@lid')) saveContactLid(listing.id, sentMsg.to);
+            }
             sent++;
             console.log(`📤 WA terkirim ke #${listing.id} (${normalized}) → chat=${sentMsg?.to || chatId}`);
             await new Promise(r => setTimeout(r, 4000 + Math.random() * 3000));
@@ -270,28 +303,26 @@ async function handleOwnerCommand(msg, body) {
 client.on('message_create', async (msg) => {
     if (!msg.fromMe) return;
 
-    // Capture selfLid — gunakan msg.id.remote sebagai anchor yang aman.
-    // msg.id.remote = chat ID (@c.us), konsisten tanpa tergantung format @lid.
+    // Capture selfLid dan simpan ke file supaya persist antar restart
     if (!selfLid) {
+        let captured = null;
         if (msg.from && msg.from.endsWith('@lid')) {
-            // Outgoing: msg.from adalah LID bot sendiri
-            selfLid = msg.from;
-            console.log(`📌 selfLid captured (from): ${selfLid}`);
-        } else if (msg.id?.remote === selfJid && msg.to && msg.to.endsWith('@lid')) {
-            // Self-chat terkonfirmasi via msg.id.remote — baru boleh pakai msg.to sebagai selfLid
-            selfLid = msg.to;
-            console.log(`📌 selfLid captured (self-chat): ${selfLid}`);
+            captured = msg.from; // outgoing: msg.from = LID bot sendiri
+        } else if (msg.from === selfJid && msg.to && msg.to.endsWith('@lid')) {
+            captured = msg.to;   // self-chat: msg.from=@c.us, msg.to=selfLid@lid
+        }
+        if (captured) {
+            selfLid = captured;
+            try { fs.writeFileSync(SELF_LID_FILE, selfLid); } catch {}
+            console.log(`📌 selfLid captured & saved: ${selfLid}`);
         }
     }
 
     // Skip bot reply (reply selalu punya quoted message, user command tidak)
     if (msg.hasQuotedMsg) return;
 
-    // Self-chat: cek via msg.id.remote (paling reliable) ATAU msg.to === selfJid/selfLid
-    const remote = msg.id?.remote || '';
-    const isSelfChat = remote === selfJid ||
-                       msg.to === selfJid ||
-                       (selfLid && (remote === selfLid || msg.to === selfLid));
+    // Self-chat: msg.to adalah self (dalam format @c.us atau @lid)
+    const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
     if (!isSelfChat) return;
 
     const body = (msg.body || '').trim();
@@ -314,15 +345,18 @@ client.on('message', async (msg) => {
     if (!body) return;
 
     // Cek apakah pengirim adalah owner kos yang pernah kita WA
+    // Cek msg.from langsung dulu (match LID yang tersimpan di Set/DB)
     let phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
-    // Kalau @lid, resolve ke nomor HP via getContact() supaya bisa match ke Set
-    if (!phoneFromId && msg.from.endsWith('@lid')) {
+    const directMatch = checkedOwnerNumbers.has(msg.from) ||
+                        (phoneFromId && checkedOwnerNumbers.has(normalizePhone(phoneFromId)));
+    // Kalau tidak direct match dan format @lid, coba resolve via getContact()
+    if (!directMatch && !phoneFromId && msg.from.endsWith('@lid')) {
         try {
             const contact = await msg.getContact();
             phoneFromId = contact.number || '';
         } catch {}
     }
-    const isOwner = checkedOwnerNumbers.has(msg.from) ||
+    const isOwner = directMatch ||
                     (phoneFromId && checkedOwnerNumbers.has(normalizePhone(phoneFromId))) ||
                     getListingByContact(phoneFromId);
     if (isOwner) {
