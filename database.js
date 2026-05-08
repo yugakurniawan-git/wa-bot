@@ -189,7 +189,7 @@ function markWaChecked(id) {
 function markVerified(id) {
     try {
         const db = getDbWrite();
-        db.prepare(`UPDATE posts SET verified = 1 WHERE id = ?`).run(id);
+        db.prepare(`UPDATE posts SET verified = 1, verified_at = datetime('now') WHERE id = ?`).run(id);
         db.close();
     } catch (err) {
         console.error('DB markVerified error:', err.message);

@@ -328,11 +328,22 @@ client.on('message', async (msg) => {
     if (isOwner) {
         const ownerListing = typeof isOwner === 'object' ? isOwner : getListingByContact(phoneFromId);
         console.log(`\n🏠 [OWNER-KOS SILENT] ${msg.from}: ${body.substring(0, 80)}`);
+
+        // Auto-verify: kalau owner balas dengan kata positif, langsung mark verified
+        const positiveReply = /\b(masih\s+(ada|kosong|available)|ada\s+kak|ada\s+pak|ada\s+bu|ada\s+mas|iya\s+(ada|masih|kosong)|ya\s+(ada|masih)|ready|available|kosong\s*kak|masih\s*kok|oke\s*ada|ada\s+kok)\b/i;
+        const autoVerified = ownerListing?.id && positiveReply.test(body);
+        if (autoVerified) {
+            markVerified(ownerListing.id);
+            console.log(`✅ Auto-verified listing #${ownerListing.id} dari reply owner`);
+        }
+
         const notif =
             `📬 *Reply dari Pemilik Kos*\n\n` +
             (ownerListing?.id ? `Listing *#${ownerListing.id}* — ${ownerListing.location || '—'}\n📞 ${ownerListing.contact}\n\n` : `📞 ${phoneFromId || msg.from}\n\n`) +
             `💬 _"${body}"_\n\n` +
-            (ownerListing?.id ? `Kalau masih kosong → ketik *verify #${ownerListing.id}*` : '');
+            (autoVerified
+                ? `✅ *Auto-verified!* Kamar dikonfirmasi masih kosong.`
+                : ownerListing?.id ? `Kalau masih kosong → ketik *verify #${ownerListing.id}*` : '');
         if (selfJid) await client.sendMessage(selfJid, notif).catch(() => {});
         return;
     }
