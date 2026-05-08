@@ -4,8 +4,20 @@
  * Scan QR sekali → sesi tersimpan, tidak perlu scan ulang kecuali logout.
  */
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+
+// Hapus stale Chromium lock files sebelum start supaya tidak crash
+function clearChromiumLocks() {
+    const sessionDir = path.join('data', 'session', 'session');
+    ['SingletonLock', 'SingletonCookie', 'SingletonSocket'].forEach(f => {
+        const p = path.join(sessionDir, f);
+        try { fs.unlinkSync(p); console.log(`🧹 Removed stale lock: ${f}`); } catch {}
+    });
+}
+clearChromiumLocks();
 const { generateReply } = require('./ai');
 const { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats } = require('./database');
 
