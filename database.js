@@ -64,4 +64,83 @@ function formatListings(listings) {
     }).join('\n\n');
 }
 
-module.exports = { findListingsByLocation, formatListings };
+/**
+ * Admin: detail lengkap satu listing by ID
+ */
+function getById(id) {
+    try {
+        const db = getDb();
+        const row = db.prepare(`
+            SELECT id, location, price, contact, source, status,
+                   raw_text, caption, cloudinary_urls, created_at
+            FROM posts WHERE id = ?
+        `).get(id);
+        db.close();
+        return row || null;
+    } catch (err) {
+        console.error('DB error:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Admin: cari listing by keyword (lokasi / raw_text), max 10
+ */
+function searchAdmin(keyword) {
+    try {
+        const db = getDb();
+        const q = `%${keyword.toLowerCase()}%`;
+        const rows = db.prepare(`
+            SELECT id, location, price, contact, source, status
+            FROM posts
+            WHERE LOWER(location) LIKE ? OR LOWER(raw_text) LIKE ?
+            ORDER BY id DESC LIMIT 10
+        `).all(q, q);
+        db.close();
+        return rows;
+    } catch (err) {
+        console.error('DB error:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Admin: listing terbaru dengan kontak, max 15
+ */
+function getRecentAdmin(limit = 15) {
+    try {
+        const db = getDb();
+        const rows = db.prepare(`
+            SELECT id, location, price, contact, source, status
+            FROM posts ORDER BY id DESC LIMIT ?
+        `).all(limit);
+        db.close();
+        return rows;
+    } catch (err) {
+        console.error('DB error:', err.message);
+        return [];
+    }
+}
+
+/**
+ * Admin: statistik DB
+ */
+function getDbStats() {
+    try {
+        const db = getDb();
+        const rows = db.prepare(`SELECT status, COUNT(*) as count FROM posts GROUP BY status`).all();
+        const total = db.prepare(`SELECT COUNT(*) as count FROM posts`).get();
+        const withContact = db.prepare(`SELECT COUNT(*) as count FROM posts WHERE contact IS NOT NULL AND contact != ''`).get();
+        db.close();
+        const stats = {};
+        rows.forEach(r => { stats[r.status] = r.count; });
+        stats._total = total.count;
+        stats._withContact = withContact.count;
+        return stats;
+    } catch (err) {
+        console.error('DB error:', err.message);
+        return {};
+    }
+}
+
+module.exports = { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats };
