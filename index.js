@@ -147,9 +147,10 @@ async function handleOwnerCommand(msg, body) {
 
 // Owner command: tangkap pesan yang dikirim dari akun ini sendiri (self-chat / note to self)
 client.on('message_create', async (msg) => {
-    if (!msg.fromMe) return;
-    // Hanya proses pesan ke diri sendiri (chat dengan nomor sendiri)
     const selfId = client.info && client.info.wid ? client.info.wid._serialized : null;
+    console.log(`📝 message_create | fromMe=${msg.fromMe} | from=${msg.from} | to=${msg.to} | selfId=${selfId}`);
+
+    if (!msg.fromMe) return;
     if (!selfId || msg.to !== selfId) return;
 
     const body = (msg.body || '').trim();
