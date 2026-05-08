@@ -90,13 +90,11 @@ function formatDetail(row) {
     ].filter(Boolean).join('\n');
 }
 
-// Track ID pesan yang dikirim bot supaya tidak di-loop balik
-const botSentIds = new Set();
+// Lock: cegah loop saat bot reply juga trigger message_create
+let ownerBusy = false;
 
 async function ownerReply(msg, text) {
-    const sent = await msg.reply(text);
-    if (sent?.id?._serialized) botSentIds.add(sent.id._serialized);
-    return sent;
+    return msg.reply(text);
 }
 
 async function handleOwnerCommand(msg, body) {
@@ -168,12 +166,7 @@ client.on('message_create', async (msg) => {
     }
 
     if (!msg.fromMe) return;
-
-    // Skip pesan yang dikirim bot sendiri sebagai reply
-    if (botSentIds.has(msg.id._serialized)) {
-        botSentIds.delete(msg.id._serialized);
-        return;
-    }
+    if (ownerBusy) return; // bot sedang memproses/reply, abaikan trigger balik
 
     // Cek apakah pesan ini ke diri sendiri (self-chat)
     const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
@@ -183,7 +176,8 @@ client.on('message_create', async (msg) => {
     if (!body) return;
 
     console.log(`\n👑 [OWNER-self] ${body.substring(0, 80)}`);
-    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
+    ownerBusy = true;
+    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); } finally { ownerBusy = false; }
 });
 
 client.on('message', async (msg) => {
@@ -195,7 +189,8 @@ client.on('message', async (msg) => {
                 const body = (msg.body || '').trim();
                 if (body) {
                     console.log(`\n👑 [OWNER-personal] ${body.substring(0, 80)}`);
-                    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
+                    ownerBusy = true;
+                    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); } finally { ownerBusy = false; }
                 }
                 return;
             }
