@@ -26,9 +26,6 @@ const {
     getListingByContact,
 } = require('./database');
 
-// Nomor HP pribadi owner (opsional) — format 62xxxxxxxxx tanpa + atau 0
-const OWNER_PHONE = process.env.OWNER_NUMBER || null; // e.g. "6281234567890"
-
 // Nomor owner kos yang sudah di-WA — in-memory untuk intercept reply cepat
 // Format: normalized 62xxx (tanpa + atau spasi)
 const checkedOwnerNumbers = new Set();
@@ -311,30 +308,6 @@ client.on('message_create', async (msg) => {
 });
 
 client.on('message', async (msg) => {
-    // Owner command dari nomor pribadi
-    if (OWNER_PHONE && !msg.fromMe && !msg.from.endsWith('@g.us')) {
-        // Cek langsung via msg.from (tanpa async, tidak bisa gagal silently)
-        const phoneFromMsg = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
-        const isOwnerPhone = phoneFromMsg && normalizePhone(phoneFromMsg) === normalizePhone(OWNER_PHONE);
-
-        // Fallback: getContact() untuk kasus LID atau format lain
-        let isOwnerByContact = false;
-        if (!isOwnerPhone && !phoneFromMsg) {
-            try {
-                const contact = await msg.getContact();
-                isOwnerByContact = contact.number === OWNER_PHONE || normalizePhone(contact.number) === normalizePhone(OWNER_PHONE);
-            } catch {}
-        }
-
-        if (isOwnerPhone || isOwnerByContact) {
-            const body = (msg.body || '').trim();
-            if (body) {
-                console.log(`\n👑 [OWNER-personal] ${body.substring(0, 80)}`);
-                try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
-            }
-            return;
-        }
-    }
 
     // Skip pesan dari diri sendiri
     if (msg.fromMe) return;
