@@ -291,16 +291,38 @@ async function handleOwnerCommand(msg, body) {
         );
     }
 
-    // help
+    // help flow — panduan alur lengkap
+    if (lower === 'help flow' || lower === 'flow') {
+        return ownerReply(msg,
+            `📋 *Alur Cek Owner Kos*\n\n` +
+            `1️⃣ *check* — lihat siapa yang belum dihubungi\n` +
+            `2️⃣ *check kirim* — bot WA semua owner (max 10)\n` +
+            `3️⃣ Owner balas → bot diam, forward ke sini\n` +
+            `4️⃣a Balasan jelas ("masih ada" dll) → *auto-verify* otomatis ✅\n` +
+            `4️⃣b Balasan ambigu → ketik *verify #id*\n\n` +
+            `*WA manual ke owner?*\n` +
+            `→ check add 081234567890\n` +
+            `→ kalau owner konfirmasi kosong, ketik verify #id\n\n` +
+            `Ketik *help* untuk semua command.`
+        );
+    }
+
+    // help — semua command
     return ownerReply(msg,
-        `🤖 *Admin Commands:*\n\n` +
-        `#63 — detail listing ID 63\n` +
-        `cari sesetan — cari by keyword\n` +
-        `list — 15 listing terbaru\n` +
-        `stat — statistik database\n` +
-        `check — lihat listing belum dicek owner\n` +
-        `check kirim — kirim WA ke owner (max 10)\n` +
-        `verify #63 — mark listing sudah dikonfirmasi kosong`
+        `🤖 *Admin Commands*\n\n` +
+        `📂 *Data Listing*\n` +
+        `• list — 15 listing terbaru\n` +
+        `• cari sesetan — cari by keyword\n` +
+        `• #34 — detail listing #34\n` +
+        `• stat — statistik database\n\n` +
+        `✉️ *Cek Owner Kos*\n` +
+        `• check — lihat yang belum dicek\n` +
+        `• check preview — contoh pesan ke owner\n` +
+        `• check kirim — WA owner (max 10)\n` +
+        `• check add 08xxx — tambah nomor manual\n\n` +
+        `✅ *Verifikasi*\n` +
+        `• verify #34 — tandai masih kosong\n\n` +
+        `Ketik *help flow* untuk panduan alur lengkap.`
     );
 }
 
