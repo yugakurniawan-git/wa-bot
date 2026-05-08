@@ -90,9 +90,6 @@ function formatDetail(row) {
     ].filter(Boolean).join('\n');
 }
 
-// Lock: cegah loop saat bot reply juga trigger message_create
-let ownerBusy = false;
-
 async function ownerReply(msg, text) {
     return msg.reply(text);
 }
@@ -174,7 +171,8 @@ client.on('message_create', async (msg) => {
         }
     }
 
-    if (ownerBusy) return;
+    // Skip bot reply (reply selalu punya quoted message, user command tidak)
+    if (msg.hasQuotedMsg) return;
 
     // Self-chat: to === selfJid/@c.us, atau to === selfLid/@lid,
     // atau pola khas self-chat (from=@c.us, to=@lid)
@@ -187,8 +185,7 @@ client.on('message_create', async (msg) => {
     if (!body) return;
 
     console.log(`\n👑 [OWNER-self] ${body.substring(0, 80)}`);
-    ownerBusy = true;
-    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); } finally { ownerBusy = false; }
+    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
 });
 
 client.on('message', async (msg) => {
@@ -200,8 +197,7 @@ client.on('message', async (msg) => {
                 const body = (msg.body || '').trim();
                 if (body) {
                     console.log(`\n👑 [OWNER-personal] ${body.substring(0, 80)}`);
-                    ownerBusy = true;
-                    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); } finally { ownerBusy = false; }
+                    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
                 }
                 return;
             }
