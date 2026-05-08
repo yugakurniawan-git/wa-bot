@@ -216,6 +216,14 @@ async function handleOwnerCommand(msg, body) {
         return ownerReply(msg, `✅ Listing *#${id}* (${row.location}) ditandai *terverifikasi* — kamar masih kosong.`);
     }
 
+    // check add [nomor] — manual tambah nomor ke daftar owner (untuk test)
+    const addMatch = lower.match(/^check add\s+(\d+)$/);
+    if (addMatch) {
+        const num = normalizePhone(addMatch[1]);
+        checkedOwnerNumbers.add(num);
+        return ownerReply(msg, `✅ *${num}* ditambahkan ke daftar owner. Coba balas dari nomor itu — bot harus diam.`);
+    }
+
     // check preview — kirim contoh pesan ke self-chat
     if (lower === 'check preview') {
         const sample = getListingsToCheck(1)[0] || { location: 'Sesetan, Denpasar', price: 'Rp 800.000/bulan' };
