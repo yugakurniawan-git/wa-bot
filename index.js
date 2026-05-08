@@ -166,7 +166,10 @@ client.on('message_create', async (msg) => {
     }
 
     if (!msg.fromMe) return;
-    if (ownerBusy) return; // bot sedang memproses/reply, abaikan trigger balik
+
+    console.log(`📝 mc | busy=${ownerBusy} | from=${msg.from} | to=${msg.to} | selfJid=${selfJid} | selfLid=${selfLid}`);
+
+    if (ownerBusy) return;
 
     // Cek apakah pesan ini ke diri sendiri (self-chat)
     const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
