@@ -199,8 +199,8 @@ async function handleOwnerCommand(msg, body) {
     const text = body.trim();
     const lower = text.toLowerCase();
 
-    // cek #63 / #63 / cek id 63
-    const idMatch = text.match(/(?:cek\s+)?#?(\d+)$/) || lower.match(/cek\s+id\s+(\d+)/);
+    // #63 atau cek #63 atau cek id 63
+    const idMatch = lower.match(/^#(\d+)$/) || lower.match(/^cek\s+#?(\d+)$/) || lower.match(/^cek\s+id\s+(\d+)$/);
     if (idMatch) {
         const row = getById(parseInt(idMatch[1]));
         if (!row) return ownerReply(msg, `❌ Listing #${idMatch[1]} tidak ditemukan.`);
