@@ -145,6 +145,11 @@ async function handleOwnerCommand(msg, body) {
 }
 
 client.on('message', async (msg) => {
+    // DEBUG: log semua pengirim supaya bisa verifikasi OWNER_NUMBER
+    if (!msg.fromMe && !msg.from.endsWith('@g.us')) {
+        console.log(`📬 from=${msg.from} | OWNER_NUMBER set=${OWNER_NUMBER} | match=${msg.from === OWNER_NUMBER}`);
+    }
+
     // Owner command mode
     if (OWNER_NUMBER && msg.from === OWNER_NUMBER) {
         const body = (msg.body || '').trim();
