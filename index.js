@@ -72,6 +72,19 @@ client.on('authenticated', () => {
 
 client.on('ready', () => {
     selfJid = client.info.wid._serialized;
+
+    // Load semua owner yang pernah di-WA dari DB ke Set supaya intercept langsung jalan
+    try {
+        const Database = require('better-sqlite3');
+        const db = new Database(process.env.BANTUKOS_DB_PATH || 'data/bantukos.db', { readonly: true });
+        const rows = db.prepare(`SELECT contact FROM posts WHERE wa_checked_at IS NOT NULL`).all();
+        db.close();
+        rows.forEach(r => { if (r.contact) checkedOwnerNumbers.add(normalizePhone(r.contact)); });
+        console.log(`   🛡️  Loaded ${checkedOwnerNumbers.size} checked owner numbers`);
+    } catch (e) {
+        console.error('   ⚠️ Gagal load checked owners:', e.message);
+    }
+
     console.log('✅ Bantukos WA Bot siap menerima pesan!');
     console.log(`   DB  : ${process.env.BANTUKOS_DB_PATH || 'data/bantukos.db'}`);
     console.log(`   JID : ${selfJid}`);
@@ -140,10 +153,11 @@ async function runOwnerCheck(replyMsg, limit = 10) {
 
         try {
             const text = buildOwnerCheckMessage(listing);
-            await client.sendMessage(chatId, text);
+            const sentMsg = await client.sendMessage(chatId, text);
+            // Simpan LID asli dari sentMsg.to supaya intercept reply bisa match langsung
+            if (sentMsg?.to) checkedOwnerNumbers.add(sentMsg.to);
             sent++;
-            console.log(`📤 WA terkirim ke #${listing.id} (${normalized})`);
-            // Delay 4-7 detik antar pesan supaya tidak kena spam filter
+            console.log(`📤 WA terkirim ke #${listing.id} (${normalized}) → chat=${sentMsg?.to || chatId}`);
             await new Promise(r => setTimeout(r, 4000 + Math.random() * 3000));
         } catch (e) {
             failed++;
@@ -313,33 +327,23 @@ client.on('message', async (msg) => {
     const body = (msg.body || '').trim();
     if (!body) return;
 
-    // Cek apakah pengirim adalah owner kos yang pernah kita WA — jangan di-reply bot
-    try {
-        const contact = await msg.getContact();
-        const phoneFromContact = normalizePhone(contact.number || '');
-        const phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
-
-        // Cek in-memory Set dulu (cepat, tidak perlu DB)
-        const isCheckedOwner = checkedOwnerNumbers.has(phoneFromContact) ||
-                               checkedOwnerNumbers.has(phoneFromId);
-
-        // Fallback ke DB kalau tidak ada di Set (misal bot baru restart)
-        const ownerListing = isCheckedOwner
-            ? (getListingByContact(phoneFromContact) || getListingByContact(phoneFromId))
-            : (getListingByContact(phoneFromContact) || getListingByContact(phoneFromId));
-
-        if (isCheckedOwner || ownerListing) {
-            console.log(`\n🏠 [OWNER-KOS SILENT] ${phoneFromContact || phoneFromId}: ${body.substring(0, 80)}`);
-            const listing = ownerListing || {};
-            const notif =
-                `📬 *Reply dari Pemilik Kos*\n\n` +
-                (listing.id ? `Listing *#${listing.id}* — ${listing.location || '—'}\n📞 ${listing.contact}\n\n` : '') +
-                `💬 _"${body}"_\n\n` +
-                (listing.id ? `Kalau masih kosong → ketik *verify #${listing.id}*` : '');
-            if (selfJid) await client.sendMessage(selfJid, notif).catch(() => {});
-            return; // DIAM — jangan reply ke owner
-        }
-    } catch {}
+    // Cek apakah pengirim adalah owner kos yang pernah kita WA
+    // Cek msg.from langsung ke Set — tidak perlu getContact() yang bisa gagal di LID
+    const phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
+    const isOwner = checkedOwnerNumbers.has(msg.from) ||
+                    checkedOwnerNumbers.has(phoneFromId) ||
+                    getListingByContact(phoneFromId);
+    if (isOwner) {
+        const ownerListing = typeof isOwner === 'object' ? isOwner : getListingByContact(phoneFromId);
+        console.log(`\n🏠 [OWNER-KOS SILENT] ${msg.from}: ${body.substring(0, 80)}`);
+        const notif =
+            `📬 *Reply dari Pemilik Kos*\n\n` +
+            (ownerListing?.id ? `Listing *#${ownerListing.id}* — ${ownerListing.location || '—'}\n📞 ${ownerListing.contact}\n\n` : `📞 ${phoneFromId || msg.from}\n\n`) +
+            `💬 _"${body}"_\n\n` +
+            (ownerListing?.id ? `Kalau masih kosong → ketik *verify #${ownerListing.id}*` : '');
+        if (selfJid) await client.sendMessage(selfJid, notif).catch(() => {});
+        return;
+    }
 
     const contactId = msg.from;
     console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${contactId}: ${body.substring(0, 80)}`);
