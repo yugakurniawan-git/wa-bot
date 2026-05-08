@@ -22,8 +22,11 @@ const { generateReply } = require('./ai');
 const { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats } = require('./database');
 
 // Nomor HP pribadi owner (opsional) — format 62xxxxxxxxx tanpa + atau 0
-const OWNER_NUMBER = process.env.OWNER_NUMBER ? `${process.env.OWNER_NUMBER}@c.us` : null;
+const OWNER_PHONE = process.env.OWNER_NUMBER || null; // e.g. "6281234567890"
 
+// Identitas bot — diisi saat ready/message_create, support @c.us dan @lid
+let selfJid = null;
+let selfLid = null;
 
 // Simpan riwayat percakapan per kontak (in-memory, reset kalau bot restart)
 const conversationHistory = new Map();
@@ -55,8 +58,10 @@ client.on('authenticated', () => {
 });
 
 client.on('ready', () => {
+    selfJid = client.info.wid._serialized;
     console.log('✅ Bantukos WA Bot siap menerima pesan!');
     console.log(`   DB  : ${process.env.BANTUKOS_DB_PATH || 'data/bantukos.db'}`);
+    console.log(`   JID : ${selfJid}`);
     console.log(`   Mode: auto-reply aktif\n`);
 });
 
@@ -145,30 +150,41 @@ async function handleOwnerCommand(msg, body) {
     );
 }
 
-// Owner command: tangkap pesan yang dikirim dari akun ini sendiri (self-chat / note to self)
+// Owner command: tangkap pesan yang dikirim ke diri sendiri (self-chat / note to self)
 client.on('message_create', async (msg) => {
-    const selfId = client.info && client.info.wid ? client.info.wid._serialized : null;
-    console.log(`📝 message_create | fromMe=${msg.fromMe} | from=${msg.from} | to=${msg.to} | selfId=${selfId}`);
+    // Capture LID bot dari pesan outgoing pertama
+    if (msg.fromMe && msg.from && msg.from.endsWith('@lid') && !selfLid) {
+        selfLid = msg.from;
+        console.log(`📌 Bot LID captured: ${selfLid}`);
+    }
 
     if (!msg.fromMe) return;
-    if (!selfId || msg.to !== selfId) return;
+
+    // Cek apakah pesan ini ke diri sendiri (self-chat)
+    const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
+    if (!isSelfChat) return;
 
     const body = (msg.body || '').trim();
     if (!body) return;
 
-    console.log(`\n👑 [OWNER] ${body.substring(0, 80)}`);
+    console.log(`\n👑 [OWNER-self] ${body.substring(0, 80)}`);
     try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
 });
 
 client.on('message', async (msg) => {
-    // Owner command dari nomor pribadi
-    if (OWNER_NUMBER && msg.from === OWNER_NUMBER) {
-        const body = (msg.body || '').trim();
-        if (body) {
-            console.log(`\n👑 [OWNER-personal] ${body.substring(0, 80)}`);
-            try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
-        }
-        return;
+    // Owner command dari nomor pribadi — resolve LID ke nomor HP dulu
+    if (OWNER_PHONE && !msg.fromMe && !msg.from.endsWith('@g.us')) {
+        try {
+            const contact = await msg.getContact();
+            if (contact.number === OWNER_PHONE) {
+                const body = (msg.body || '').trim();
+                if (body) {
+                    console.log(`\n👑 [OWNER-personal] ${body.substring(0, 80)}`);
+                    try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
+                }
+                return;
+            }
+        } catch {}
     }
 
     // Skip pesan dari diri sendiri
