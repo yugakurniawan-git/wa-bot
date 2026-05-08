@@ -101,16 +101,14 @@ async function ownerReply(msg, text) {
 }
 
 function buildOwnerCheckMessage(listing) {
-    const hour = new Date().getHours();
-    const greeting = hour < 11 ? 'pagi' : hour < 15 ? 'siang' : hour < 18 ? 'sore' : 'malam';
     return (
-        `Halo kak, selamat ${greeting} 🙏\n\n` +
-        `Maaf mengganggu. Kami dari *Bantu Kos*, layanan bantu survei dan carikan penyewa kos di Bali.\n\n` +
-        `Kami mendapat info ada kos di *${listing.location || 'Bali'}*` +
-        (listing.price ? ` dengan harga *${listing.price}*` : '') +
-        `. Apakah kamarnya saat ini masih tersedia kak?\n\n` +
-        `Kami ada calon penyewa yang sedang cari kos di area tersebut dan ingin survei langsung sebelum DP.\n\n` +
-        `Terima kasih banyak kak 🙏`
+        `Halo kak, maaf ganggu 🙏\n\n` +
+        `Mau nanya kos` +
+        (listing.location ? ` di *${listing.location}*` : '') +
+        (listing.price ? ` yang *${listing.price}*` : '') +
+        ` masih ada kamar kosong gak?\n\n` +
+        `Kalau masih kosong, boleh minta info detail kamarnya kak — fasilitas, foto, dan kondisi terkini?\n\n` +
+        `Terima kasih kak 🙏`
     );
 }
 
@@ -194,6 +192,13 @@ async function handleOwnerCommand(msg, body) {
         if (!row) return ownerReply(msg, `❌ Listing #${id} tidak ditemukan.`);
         markVerified(id);
         return ownerReply(msg, `✅ Listing *#${id}* (${row.location}) ditandai *terverifikasi* — kamar masih kosong.`);
+    }
+
+    // check preview — kirim contoh pesan ke self-chat
+    if (lower === 'check preview') {
+        const sample = getListingsToCheck(1)[0] || { location: 'Sesetan, Denpasar', price: 'Rp 800.000/bulan' };
+        const preview = buildOwnerCheckMessage(sample);
+        return ownerReply(msg, `📋 *Contoh pesan yang akan dikirim ke owner:*\n\n${preview}`);
     }
 
     // check — lihat listing belum dicek
@@ -303,10 +308,12 @@ client.on('message', async (msg) => {
     // Cek apakah pengirim adalah owner kos yang pernah kita WA — jangan di-reply bot
     try {
         const contact = await msg.getContact();
-        const ownerListing = getListingByContact(contact.number);
+        // Coba dari contact.number, fallback ke parse dari msg.from (@c.us)
+        const phoneFromContact = contact.number || '';
+        const phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
+        const ownerListing = getListingByContact(phoneFromContact) || getListingByContact(phoneFromId);
         if (ownerListing) {
-            console.log(`\n🏠 [OWNER-KOS] Reply dari owner #${ownerListing.id} (${ownerListing.contact}): ${body.substring(0, 80)}`);
-            // Forward ke admin via self-chat tanpa reply ke owner
+            console.log(`\n🏠 [OWNER-KOS] Reply dari owner #${ownerListing.id}: ${body.substring(0, 80)}`);
             const notif =
                 `📬 *Reply dari Pemilik Kos*\n\n` +
                 `Listing *#${ownerListing.id}* — ${ownerListing.location || '—'}\n` +
@@ -314,7 +321,7 @@ client.on('message', async (msg) => {
                 `💬 _"${body}"_\n\n` +
                 `Kalau masih kosong → ketik *verify #${ownerListing.id}*`;
             if (selfJid) await client.sendMessage(selfJid, notif).catch(() => {});
-            return; // JANGAN reply ke owner
+            return;
         }
     } catch {}
 
