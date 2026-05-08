@@ -21,6 +21,9 @@ clearChromiumLocks();
 const { generateReply } = require('./ai');
 const { findListingsByLocation, formatListings, getById, searchAdmin, getRecentAdmin, getDbStats } = require('./database');
 
+// Nomor HP pribadi owner (opsional) — format 62xxxxxxxxx tanpa + atau 0
+const OWNER_NUMBER = process.env.OWNER_NUMBER ? `${process.env.OWNER_NUMBER}@c.us` : null;
+
 
 // Simpan riwayat percakapan per kontak (in-memory, reset kalau bot restart)
 const conversationHistory = new Map();
@@ -157,6 +160,16 @@ client.on('message_create', async (msg) => {
 });
 
 client.on('message', async (msg) => {
+    // Owner command dari nomor pribadi
+    if (OWNER_NUMBER && msg.from === OWNER_NUMBER) {
+        const body = (msg.body || '').trim();
+        if (body) {
+            console.log(`\n👑 [OWNER-personal] ${body.substring(0, 80)}`);
+            try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
+        }
+        return;
+    }
+
     // Skip pesan dari diri sendiri
     if (msg.fromMe) return;
 
