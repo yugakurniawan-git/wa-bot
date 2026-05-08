@@ -18,9 +18,7 @@ function clearChromiumLocks() {
     });
 }
 clearChromiumLocks();
-const { generateReply } = require('./ai');
 const {
-    findListingsByLocation, formatListings,
     getById, searchAdmin, getRecentAdmin, getDbStats,
     getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
     getListingByContact,
@@ -37,10 +35,6 @@ function normalizePhone(n) {
 // Identitas bot — diisi saat ready/message_create, support @c.us dan @lid
 let selfJid = null;
 let selfLid = null;
-
-// Simpan riwayat percakapan per kontak (in-memory, reset kalau bot restart)
-const conversationHistory = new Map();
-const MAX_HISTORY = 10; // max pesan per kontak yang disimpan
 
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: 'data/session' }),
@@ -343,41 +337,8 @@ client.on('message', async (msg) => {
         return;
     }
 
-    const contactId = msg.from;
-    console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${contactId}: ${body.substring(0, 80)}`);
-
-    try {
-        // Ambil listing relevan dari database
-        const listings = findListingsByLocation(body);
-        const listingsText = formatListings(listings);
-
-        // Ambil riwayat percakapan kontak ini
-        const history = conversationHistory.get(contactId) || [];
-
-        // Generate balasan AI
-        const reply = await generateReply(body, listingsText, history);
-
-        // Kirim balasan
-        await msg.reply(reply);
-        console.log(`✉️  Balas: ${reply.substring(0, 100)}${reply.length > 100 ? '...' : ''}`);
-
-        // Simpan ke riwayat percakapan
-        history.push({ role: 'user', content: body });
-        history.push({ role: 'assistant', content: reply });
-
-        // Batasi panjang history
-        if (history.length > MAX_HISTORY) {
-            history.splice(0, history.length - MAX_HISTORY);
-        }
-        conversationHistory.set(contactId, history);
-
-    } catch (err) {
-        console.error('⚠️ Error:', err.message);
-        // Fallback reply kalau ada error
-        try {
-            await msg.reply('maaf lagi ada gangguan sebentar, coba WA lagi ya kak 🙏');
-        } catch {}
-    }
+    // AI auto-reply dimatikan — bot diam untuk semua pesan non-owner
+    console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${msg.from}: ${body.substring(0, 80)} (ignored)`);
 });
 
 console.log('🚀 Memulai Bantukos WA Bot...');
