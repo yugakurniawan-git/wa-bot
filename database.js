@@ -197,6 +197,27 @@ function markVerified(id) {
 }
 
 /**
+ * Cek apakah nomor HP ini adalah owner yang pernah kita WA untuk cek ketersediaan.
+ * Return listing-nya kalau ada, null kalau bukan.
+ */
+function getListingByContact(phone) {
+    const normalize = (n) => (n || '').replace(/\D/g, '').replace(/^0/, '62');
+    const normalized = normalize(phone);
+    if (!normalized || normalized.length < 8) return null;
+    try {
+        const db = getDb();
+        const rows = db.prepare(`
+            SELECT id, location, price, contact, wa_checked_at
+            FROM posts WHERE wa_checked_at IS NOT NULL
+        `).all();
+        db.close();
+        return rows.find(r => normalize(r.contact) === normalized) || null;
+    } catch (err) {
+        return null;
+    }
+}
+
+/**
  * Admin: hitung listing pending untuk dicek
  */
 function countPendingCheck() {
@@ -218,4 +239,5 @@ module.exports = {
     findListingsByLocation, formatListings,
     getById, searchAdmin, getRecentAdmin, getDbStats,
     getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
+    getListingByContact,
 };

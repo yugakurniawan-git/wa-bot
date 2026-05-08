@@ -23,6 +23,7 @@ const {
     findListingsByLocation, formatListings,
     getById, searchAdmin, getRecentAdmin, getDbStats,
     getListingsToCheck, markWaChecked, markVerified, countPendingCheck,
+    getListingByContact,
 } = require('./database');
 
 // Nomor HP pribadi owner (opsional) — format 62xxxxxxxxx tanpa + atau 0
@@ -298,6 +299,24 @@ client.on('message', async (msg) => {
     // Skip pesan kosong / media tanpa caption
     const body = (msg.body || '').trim();
     if (!body) return;
+
+    // Cek apakah pengirim adalah owner kos yang pernah kita WA — jangan di-reply bot
+    try {
+        const contact = await msg.getContact();
+        const ownerListing = getListingByContact(contact.number);
+        if (ownerListing) {
+            console.log(`\n🏠 [OWNER-KOS] Reply dari owner #${ownerListing.id} (${ownerListing.contact}): ${body.substring(0, 80)}`);
+            // Forward ke admin via self-chat tanpa reply ke owner
+            const notif =
+                `📬 *Reply dari Pemilik Kos*\n\n` +
+                `Listing *#${ownerListing.id}* — ${ownerListing.location || '—'}\n` +
+                `📞 ${ownerListing.contact}\n\n` +
+                `💬 _"${body}"_\n\n` +
+                `Kalau masih kosong → ketik *verify #${ownerListing.id}*`;
+            if (selfJid) await client.sendMessage(selfJid, notif).catch(() => {});
+            return; // JANGAN reply ke owner
+        }
+    } catch {}
 
     const contactId = msg.from;
     console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${contactId}: ${body.substring(0, 80)}`);
