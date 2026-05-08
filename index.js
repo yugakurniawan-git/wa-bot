@@ -295,11 +295,9 @@ client.on('message_create', async (msg) => {
     // Skip bot reply (reply selalu punya quoted message, user command tidak)
     if (msg.hasQuotedMsg) return;
 
-    // Self-chat: to === selfJid/@c.us, atau to === selfLid/@lid,
-    // atau pola khas self-chat (from=@c.us, to=@lid)
-    const isSelfChat = msg.to === selfJid ||
-                       (selfLid && msg.to === selfLid) ||
-                       (msg.from === selfJid && msg.to && msg.to.endsWith('@lid'));
+    // Self-chat: hanya kalau to === selfJid atau to === selfLid yang sudah terverifikasi
+    // JANGAN pakai fallback @lid broad — bisa match pesan ke owner!
+    const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
     if (!isSelfChat) return;
 
     const body = (msg.body || '').trim();
