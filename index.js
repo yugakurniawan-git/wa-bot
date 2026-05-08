@@ -90,6 +90,15 @@ function formatDetail(row) {
     ].filter(Boolean).join('\n');
 }
 
+// Track ID pesan yang dikirim bot supaya tidak di-loop balik
+const botSentIds = new Set();
+
+async function ownerReply(msg, text) {
+    const sent = await msg.reply(text);
+    if (sent?.id?._serialized) botSentIds.add(sent.id._serialized);
+    return sent;
+}
+
 async function handleOwnerCommand(msg, body) {
     const text = body.trim();
     const lower = text.toLowerCase();
@@ -98,37 +107,37 @@ async function handleOwnerCommand(msg, body) {
     const idMatch = text.match(/(?:cek\s+)?#?(\d+)$/) || lower.match(/cek\s+id\s+(\d+)/);
     if (idMatch) {
         const row = getById(parseInt(idMatch[1]));
-        if (!row) return msg.reply(`❌ Listing #${idMatch[1]} tidak ditemukan.`);
-        return msg.reply(formatDetail(row));
+        if (!row) return ownerReply(msg, `❌ Listing #${idMatch[1]} tidak ditemukan.`);
+        return ownerReply(msg, formatDetail(row));
     }
 
     // cari <keyword>
     if (lower.startsWith('cari ')) {
         const keyword = text.slice(5).trim();
         const rows = searchAdmin(keyword);
-        if (!rows.length) return msg.reply(`🔍 Tidak ada hasil untuk *"${keyword}"*`);
+        if (!rows.length) return ownerReply(msg, `🔍 Tidak ada hasil untuk *"${keyword}"*`);
         const lines = rows.map(r => {
             const c = r.contact ? ` | 📞 ${r.contact}` : '';
             return `#${r.id} • ${r.location || '—'} • ${r.price || '—'}${c}`;
         });
-        return msg.reply(`🔍 *"${keyword}"* — ${rows.length} listing:\n\n${lines.join('\n')}`);
+        return ownerReply(msg, `🔍 *"${keyword}"* — ${rows.length} listing:\n\n${lines.join('\n')}`);
     }
 
     // list
     if (lower === 'list' || lower === 'listing') {
         const rows = getRecentAdmin(15);
-        if (!rows.length) return msg.reply('Database kosong.');
+        if (!rows.length) return ownerReply(msg, 'Database kosong.');
         const lines = rows.map(r => {
             const c = r.contact ? ` | 📞 ${r.contact}` : '';
             return `#${r.id} • ${r.location || '—'} • ${r.price || '—'}${c}`;
         });
-        return msg.reply(`📋 *15 Listing Terbaru*\n\n${lines.join('\n')}`);
+        return ownerReply(msg, `📋 *15 Listing Terbaru*\n\n${lines.join('\n')}`);
     }
 
     // stat / statistik
     if (lower === 'stat' || lower === 'statistik' || lower === 'stats') {
         const s = getDbStats();
-        return msg.reply(
+        return ownerReply(msg,
             `📊 *Statistik DB*\n\n` +
             `Total  : ${s._total || 0}\n` +
             `Baru   : ${s.new || 0}\n` +
@@ -140,7 +149,7 @@ async function handleOwnerCommand(msg, body) {
     }
 
     // help
-    return msg.reply(
+    return ownerReply(msg,
         `🤖 *Admin Commands:*\n\n` +
         `#63 — detail listing ID 63\n` +
         `cek #63 — sama\n` +
@@ -159,6 +168,12 @@ client.on('message_create', async (msg) => {
     }
 
     if (!msg.fromMe) return;
+
+    // Skip pesan yang dikirim bot sendiri sebagai reply
+    if (botSentIds.has(msg.id._serialized)) {
+        botSentIds.delete(msg.id._serialized);
+        return;
+    }
 
     // Cek apakah pesan ini ke diri sendiri (self-chat)
     const isSelfChat = msg.to === selfJid || (selfLid && msg.to === selfLid);
