@@ -29,6 +29,14 @@ const {
 // Nomor HP pribadi owner (opsional) — format 62xxxxxxxxx tanpa + atau 0
 const OWNER_PHONE = process.env.OWNER_NUMBER || null; // e.g. "6281234567890"
 
+// Nomor owner kos yang sudah di-WA — in-memory untuk intercept reply cepat
+// Format: normalized 62xxx (tanpa + atau spasi)
+const checkedOwnerNumbers = new Set();
+
+function normalizePhone(n) {
+    return (n || '').replace(/\D/g, '').replace(/^0/, '62');
+}
+
 // Identitas bot — diisi saat ready/message_create, support @c.us dan @lid
 let selfJid = null;
 let selfLid = null;
@@ -126,8 +134,8 @@ async function runOwnerCheck(replyMsg, limit = 10) {
         // Mark SEBELUM kirim — cegah duplicate kalau crash
         markWaChecked(listing.id);
 
-        const phone = listing.contact.replace(/[\s\-\+]/g, '');
-        const normalized = phone.startsWith('0') ? '62' + phone.slice(1) : phone;
+        const normalized = normalizePhone(listing.contact);
+        checkedOwnerNumbers.add(normalized);
         const chatId = `${normalized}@c.us`;
 
         try {
@@ -308,20 +316,28 @@ client.on('message', async (msg) => {
     // Cek apakah pengirim adalah owner kos yang pernah kita WA — jangan di-reply bot
     try {
         const contact = await msg.getContact();
-        // Coba dari contact.number, fallback ke parse dari msg.from (@c.us)
-        const phoneFromContact = contact.number || '';
+        const phoneFromContact = normalizePhone(contact.number || '');
         const phoneFromId = msg.from.endsWith('@c.us') ? msg.from.replace('@c.us', '') : '';
-        const ownerListing = getListingByContact(phoneFromContact) || getListingByContact(phoneFromId);
-        if (ownerListing) {
-            console.log(`\n🏠 [OWNER-KOS] Reply dari owner #${ownerListing.id}: ${body.substring(0, 80)}`);
+
+        // Cek in-memory Set dulu (cepat, tidak perlu DB)
+        const isCheckedOwner = checkedOwnerNumbers.has(phoneFromContact) ||
+                               checkedOwnerNumbers.has(phoneFromId);
+
+        // Fallback ke DB kalau tidak ada di Set (misal bot baru restart)
+        const ownerListing = isCheckedOwner
+            ? (getListingByContact(phoneFromContact) || getListingByContact(phoneFromId))
+            : (getListingByContact(phoneFromContact) || getListingByContact(phoneFromId));
+
+        if (isCheckedOwner || ownerListing) {
+            console.log(`\n🏠 [OWNER-KOS SILENT] ${phoneFromContact || phoneFromId}: ${body.substring(0, 80)}`);
+            const listing = ownerListing || {};
             const notif =
                 `📬 *Reply dari Pemilik Kos*\n\n` +
-                `Listing *#${ownerListing.id}* — ${ownerListing.location || '—'}\n` +
-                `📞 ${ownerListing.contact}\n\n` +
+                (listing.id ? `Listing *#${listing.id}* — ${listing.location || '—'}\n📞 ${listing.contact}\n\n` : '') +
                 `💬 _"${body}"_\n\n` +
-                `Kalau masih kosong → ketik *verify #${ownerListing.id}*`;
+                (listing.id ? `Kalau masih kosong → ketik *verify #${listing.id}*` : '');
             if (selfJid) await client.sendMessage(selfJid, notif).catch(() => {});
-            return;
+            return; // DIAM — jangan reply ke owner
         }
     } catch {}
 
