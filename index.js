@@ -419,5 +419,36 @@ client.on('message', async (msg) => {
     console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${msg.from}: ${body.substring(0, 80)} (ignored)`);
 });
 
+// ── HTTP Notify API ──────────────────────────────────────────────────────────
+// POST /notify  { "message": "teks notifikasi" }
+// Dipakai oleh bantukos-bot untuk kirim alert ke owner via WA.
+const http = require('http');
+const NOTIFY_PORT = parseInt(process.env.NOTIFY_PORT || '3001');
+const OWNER_JID = `${(process.env.OWNER_NUMBER || '').replace(/\D/g, '')}@c.us`;
+
+const notifyServer = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/notify') {
+        res.writeHead(404); res.end('Not Found'); return;
+    }
+    let body = '';
+    req.on('data', d => { body += d; });
+    req.on('end', async () => {
+        try {
+            const { message } = JSON.parse(body);
+            if (!message) { res.writeHead(400); res.end('missing message'); return; }
+            if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
+            await client.sendMessage(OWNER_JID, message);
+            console.log(`🔔 Notif terkirim ke ${OWNER_JID}: ${message.substring(0, 60)}`);
+            res.writeHead(200); res.end('ok');
+        } catch (e) {
+            console.error('Notify error:', e.message);
+            res.writeHead(500); res.end(e.message);
+        }
+    });
+});
+notifyServer.listen(NOTIFY_PORT, () => {
+    console.log(`🔔 Notify API siap di port ${NOTIFY_PORT}`);
+});
+
 console.log('🚀 Memulai Bantukos WA Bot...');
 client.initialize();
