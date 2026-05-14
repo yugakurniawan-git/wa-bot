@@ -355,6 +355,9 @@ client.on('message_create', async (msg) => {
     const body = (msg.body || '').trim();
     if (!body) return;
 
+    // Skip pesan notifikasi sistem (dikirim oleh notify API) — cegah infinite loop
+    if (body.startsWith('🔔') || body.startsWith('🚨') || body.startsWith('⚠️')) return;
+
     console.log(`\n👑 [OWNER-self] ${body.substring(0, 80)}`);
     try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
 });
@@ -437,7 +440,9 @@ const notifyServer = http.createServer((req, res) => {
             const { message } = JSON.parse(body);
             if (!message) { res.writeHead(400); res.end('missing message'); return; }
             if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
-            await client.sendMessage(OWNER_JID, message);
+            // Kirim ke selfJid (Saved Messages) bukan ke OWNER_NUMBER
+            // agar tidak di-loop sebagai incoming message
+            await client.sendMessage(selfJid, message);
             console.log(`🔔 Notif terkirim ke ${OWNER_JID}: ${message.substring(0, 60)}`);
             res.writeHead(200); res.end('ok');
         } catch (e) {
