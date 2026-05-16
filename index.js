@@ -362,6 +362,10 @@ client.on('message_create', async (msg) => {
     try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
 });
 
+const OWNER_JID_FROM_ENV = process.env.OWNER_NUMBER
+    ? `${process.env.OWNER_NUMBER.replace(/\D/g, '').replace(/^0/, '62')}@c.us`
+    : null;
+
 client.on('message', async (msg) => {
 
     // Skip pesan dari diri sendiri
@@ -373,6 +377,13 @@ client.on('message', async (msg) => {
     // Skip pesan kosong / media tanpa caption
     const body = (msg.body || '').trim();
     if (!body) return;
+
+    // Admin command: pesan dari nomor OWNER_NUMBER ke bot
+    if (OWNER_JID_FROM_ENV && msg.from === OWNER_JID_FROM_ENV) {
+        console.log(`\n👑 [OWNER-incoming] ${body.substring(0, 80)}`);
+        try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
+        return;
+    }
 
     // Cek apakah pengirim adalah owner kos yang pernah kita WA
     // Cek msg.from langsung dulu (match LID yang tersimpan di Set/DB)
