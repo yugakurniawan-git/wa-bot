@@ -291,6 +291,30 @@ async function handleOwnerCommand(msg, body) {
         );
     }
 
+    // kirim outreach <id> — kirim draft WA langsung ke pencari kos
+    const outreachMatch = lower.match(/^kirim outreach\s+(\w+)$/);
+    if (outreachMatch) {
+        const leadId = outreachMatch[1];
+        const pending = loadOutreachPending();
+        const lead = pending[leadId];
+        if (!lead) return ownerReply(msg, `❌ Lead *${leadId}* tidak ditemukan atau sudah terkirim.`);
+
+        const chatId = `${lead.wa_number}@c.us`;
+        try {
+            await client.sendMessage(chatId, lead.draft);
+            delete pending[leadId];
+            saveOutreachPending(pending);
+            console.log(`✅ Outreach sent to ${lead.wa_number} (lead ${leadId})`);
+            return ownerReply(msg,
+                `✅ Pesan terkirim ke *${lead.wa_number}*\n\n` +
+                `_Preview:_\n${lead.draft.substring(0, 120)}...`
+            );
+        } catch (e) {
+            console.error(`❌ Gagal kirim outreach ${leadId}:`, e.message);
+            return ownerReply(msg, `❌ Gagal kirim ke ${lead.wa_number}: ${e.message}`);
+        }
+    }
+
     // help flow — panduan alur lengkap
     if (lower === 'help flow' || lower === 'flow') {
         return ownerReply(msg,
@@ -310,18 +334,21 @@ async function handleOwnerCommand(msg, body) {
     // help — semua command
     return ownerReply(msg,
         `🤖 *Admin Commands*\n\n` +
-        `📂 *Data Listing*\n` +
+        `📂 *Data Listing (Owner Kos)*\n` +
         `• list — 15 listing terbaru\n` +
         `• cari sesetan — cari by keyword\n` +
         `• #34 — detail listing #34\n` +
         `• stat — statistik database\n\n` +
-        `✉️ *Cek Owner Kos*\n` +
-        `• check — lihat yang belum dicek\n` +
+        `✉️ *Cek Ketersediaan Owner Kos*\n` +
+        `• check — lihat owner yang belum dihubungi\n` +
         `• check preview — contoh pesan ke owner\n` +
-        `• check kirim — WA owner (max 10)\n` +
+        `• check kirim — WA owner kos (max 10)\n` +
         `• check add 08xxx — tambah nomor manual\n\n` +
-        `✅ *Verifikasi*\n` +
-        `• verify #34 — tandai masih kosong\n\n` +
+        `✅ *Verifikasi Owner Kos*\n` +
+        `• verify #34 — tandai kamar masih kosong\n\n` +
+        `🎯 *SupportKos Outreach (Pencari Kos)*\n` +
+        `• kirim outreach <id> — kirim draft WA ke pencari kos\n` +
+        `  (id ada di notif outreach yang masuk)\n\n` +
         `Ketik *help flow* untuk panduan alur lengkap.`
     );
 }
@@ -434,14 +461,26 @@ client.on('message', async (msg) => {
     console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${msg.from}: ${body.substring(0, 80)} (ignored)`);
 });
 
+// ── Outreach pending store ────────────────────────────────────────────────────
+// Menyimpan draft WA outreach yang menunggu konfirmasi owner (reply "kirim outreach <id>")
+// Format: { [id]: { wa_number, draft, created_at } }
+const OUTREACH_PENDING_FILE = path.join('data', 'outreach_pending.json');
+
+function loadOutreachPending() {
+    try { return JSON.parse(fs.readFileSync(OUTREACH_PENDING_FILE, 'utf8')); }
+    catch { return {}; }
+}
+function saveOutreachPending(data) {
+    try { fs.writeFileSync(OUTREACH_PENDING_FILE, JSON.stringify(data, null, 2)); }
+    catch (e) { console.error('Failed to save outreach pending:', e.message); }
+}
+
 // ── HTTP Notify API ──────────────────────────────────────────────────────────
-// POST /notify  { "message": "teks notifikasi" }
-// Dipakai oleh bantukos-bot untuk kirim alert ke owner via WA.
+// POST /notify  { "message": "...", "system": bool, "outreach_lead": {id, wa_number, draft} }
 //
-// Untuk dapat notif dengan SOUND di iPhone:
-//   Set OWNER_NOTIFY_NUMBER di .env ke nomor WA kamu (misal: 6285190810100)
-//   Notif akan dikirim sebagai pesan masuk biasa → ada sound.
-//   Kalau kosong, notif dikirim ke Saved Messages (silent di iPhone).
+// system: true  → kirim ke OWNER_NOTIFY_NUMBER (disk alert, dll.)
+// outreach_lead → simpan lead; owner bisa reply "kirim outreach <id>" untuk kirim ke client
+// default       → kirim ke selfJid (Saved Messages)
 const http = require('http');
 const NOTIFY_PORT = parseInt(process.env.NOTIFY_PORT || '3001');
 const OWNER_JID = `${(process.env.OWNER_NUMBER || '').replace(/\D/g, '')}@c.us`;
@@ -458,9 +497,21 @@ const notifyServer = http.createServer((req, res) => {
     req.on('data', d => { body += d; });
     req.on('end', async () => {
         try {
-            const { message, system } = JSON.parse(body);
+            const { message, system, outreach_lead } = JSON.parse(body);
             if (!message) { res.writeHead(400); res.end('missing message'); return; }
             if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
+
+            // Simpan pending outreach lead kalau ada
+            if (outreach_lead?.id && outreach_lead?.wa_number && outreach_lead?.draft) {
+                const pending = loadOutreachPending();
+                pending[outreach_lead.id] = {
+                    wa_number: outreach_lead.wa_number,
+                    draft: outreach_lead.draft,
+                    created_at: new Date().toISOString(),
+                };
+                saveOutreachPending(pending);
+                console.log(`📋 Outreach lead saved: ${outreach_lead.id} → ${outreach_lead.wa_number}`);
+            }
 
             // system: true  → kirim ke OWNER_NOTIFY_NUMBER (disk alert, dll.) supaya ada sound
             // default       → kirim ke selfJid (Saved Messages), untuk outreach notif biasa
