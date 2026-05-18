@@ -292,6 +292,11 @@ async function handleOwnerCommand(msg, body) {
         return runOwnerCheck(msg, 10);
     }
 
+    // owner bersihkan — hapus Docker containers, images, build cache yang tidak terpakai
+    if (lower === 'owner bersihkan') {
+        return runDockerCleanup(msg);
+    }
+
     // ── lead <sub> ────────────────────────────────────────────────────────────
 
     // lead kirim <id> — kirim draft WA ke pencari kos
@@ -353,7 +358,9 @@ async function handleOwnerCommand(msg, body) {
         `• owner flow — panduan alur lengkap\n\n` +
         `🎯 *Lead (Pencari Kos)*\n` +
         `• lead kirim <id> — kirim draft WA ke pencari kos\n` +
-        `  _(id muncul di notif outreach yang masuk)_`
+        `  _(id muncul di notif outreach yang masuk)_\n\n` +
+        `🖥️ *Server*\n` +
+        `• owner bersihkan — hapus Docker images/cache tidak terpakai`
     );
 }
 
@@ -464,6 +471,70 @@ client.on('message', async (msg) => {
     // AI auto-reply dimatikan — bot diam untuk semua pesan non-owner
     console.log(`\n📨 [${new Date().toLocaleTimeString('id-ID')}] ${msg.from}: ${body.substring(0, 80)} (ignored)`);
 });
+
+// ── Docker cleanup ───────────────────────────────────────────────────────────
+const { exec } = require('child_process');
+const util = require('util');
+const execAsync = util.promisify(exec);
+
+async function runDockerCleanup(replyMsg) {
+    await ownerReply(replyMsg, '🧹 Mulai bersihkan disk Docker...');
+
+    let docker;
+    try {
+        const Docker = require('dockerode');
+        docker = new Docker({ socketPath: '/var/run/docker.sock' });
+    } catch (e) {
+        return ownerReply(replyMsg,
+            `❌ Docker tidak tersedia: ${e.message}\n` +
+            `Pastikan /var/run/docker.sock di-mount di Coolify (Volumes tab).`
+        );
+    }
+
+    function fmtBytes(b) {
+        if (!b) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.min(Math.floor(Math.log(b) / Math.log(1024)), 3);
+        return (b / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+    }
+
+    const lines = [];
+    let totalSaved = 0;
+
+    try {
+        const r = await docker.pruneContainers();
+        const n = r.ContainersDeleted?.length || 0;
+        const s = r.SpaceReclaimed || 0;
+        totalSaved += s;
+        lines.push(`🗑️ Containers berhenti: ${n} dihapus (${fmtBytes(s)})`);
+    } catch (e) { lines.push(`⚠️ Containers: ${e.message}`); }
+
+    try {
+        const r = await docker.pruneImages({ filters: JSON.stringify({ dangling: ['false'] }) });
+        const n = r.ImagesDeleted?.length || 0;
+        const s = r.SpaceReclaimed || 0;
+        totalSaved += s;
+        lines.push(`🖼️ Images tidak terpakai: ${n} dihapus (${fmtBytes(s)})`);
+    } catch (e) { lines.push(`⚠️ Images: ${e.message}`); }
+
+    try {
+        const r = await docker.pruneBuildCache();
+        const s = r.SpaceReclaimed || 0;
+        totalSaved += s;
+        lines.push(`🔨 Build cache: ${fmtBytes(s)} dibersihkan`);
+    } catch (e) { lines.push(`⚠️ Build cache: ${e.message}`); }
+
+    let diskInfo = '';
+    try {
+        const { stdout } = await execAsync("df -h / | tail -1 | awk '{print $3\"/\"$2\" (\"$5\" used)\"}'");
+        diskInfo = `\n💾 Disk sekarang: *${stdout.trim()}*`;
+    } catch {}
+
+    return ownerReply(replyMsg,
+        `✅ *Selesai! ~${fmtBytes(totalSaved)} dikosongkan*\n\n` +
+        lines.join('\n') + diskInfo
+    );
+}
 
 // ── Outreach pending store ────────────────────────────────────────────────────
 // Menyimpan draft WA outreach yang menunggu konfirmasi owner (reply "kirim outreach <id>")
