@@ -458,13 +458,13 @@ const notifyServer = http.createServer((req, res) => {
     req.on('data', d => { body += d; });
     req.on('end', async () => {
         try {
-            const { message } = JSON.parse(body);
+            const { message, system } = JSON.parse(body);
             if (!message) { res.writeHead(400); res.end('missing message'); return; }
             if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
 
-            // Kirim ke OWNER_NOTIFY_NUMBER (pesan masuk = ada sound di iPhone)
-            // atau ke selfJid (Saved Messages) kalau env tidak diset
-            const target = NOTIFY_TARGET_JID || selfJid;
+            // system: true  → kirim ke OWNER_NOTIFY_NUMBER (disk alert, dll.) supaya ada sound
+            // default       → kirim ke selfJid (Saved Messages), untuk outreach notif biasa
+            const target = (system && NOTIFY_TARGET_JID) ? NOTIFY_TARGET_JID : selfJid;
             await client.sendMessage(target, message);
             console.log(`🔔 Notif → ${target}: ${message.substring(0, 60)}`);
             res.writeHead(200); res.end('ok');
