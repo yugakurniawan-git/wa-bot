@@ -437,9 +437,18 @@ client.on('message', async (msg) => {
 // ── HTTP Notify API ──────────────────────────────────────────────────────────
 // POST /notify  { "message": "teks notifikasi" }
 // Dipakai oleh bantukos-bot untuk kirim alert ke owner via WA.
+//
+// Untuk dapat notif dengan SOUND di iPhone:
+//   Set OWNER_NOTIFY_NUMBER di .env ke nomor WA kamu (misal: 6285190810100)
+//   Notif akan dikirim sebagai pesan masuk biasa → ada sound.
+//   Kalau kosong, notif dikirim ke Saved Messages (silent di iPhone).
 const http = require('http');
 const NOTIFY_PORT = parseInt(process.env.NOTIFY_PORT || '3001');
 const OWNER_JID = `${(process.env.OWNER_NUMBER || '').replace(/\D/g, '')}@c.us`;
+
+// Nomor tujuan notifikasi — bisa beda dari bot number supaya ada sound
+const _notifyNum = (process.env.OWNER_NOTIFY_NUMBER || '').replace(/\D/g, '').replace(/^0/, '62');
+const NOTIFY_TARGET_JID = _notifyNum ? `${_notifyNum}@c.us` : null;
 
 const notifyServer = http.createServer((req, res) => {
     if (req.method !== 'POST' || req.url !== '/notify') {
@@ -452,10 +461,12 @@ const notifyServer = http.createServer((req, res) => {
             const { message } = JSON.parse(body);
             if (!message) { res.writeHead(400); res.end('missing message'); return; }
             if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
-            // Kirim ke selfJid (Saved Messages) bukan ke OWNER_NUMBER
-            // agar tidak di-loop sebagai incoming message
-            await client.sendMessage(selfJid, message);
-            console.log(`🔔 Notif terkirim ke ${OWNER_JID}: ${message.substring(0, 60)}`);
+
+            // Kirim ke OWNER_NOTIFY_NUMBER (pesan masuk = ada sound di iPhone)
+            // atau ke selfJid (Saved Messages) kalau env tidak diset
+            const target = NOTIFY_TARGET_JID || selfJid;
+            await client.sendMessage(target, message);
+            console.log(`🔔 Notif → ${target}: ${message.substring(0, 60)}`);
             res.writeHead(200); res.end('ok');
         } catch (e) {
             console.error('Notify error:', e.message);
