@@ -355,8 +355,9 @@ client.on('message_create', async (msg) => {
     const body = (msg.body || '').trim();
     if (!body) return;
 
-    // Skip pesan notifikasi sistem (dikirim oleh notify API) — cegah infinite loop
-    if (body.startsWith('🔔') || body.startsWith('🚨') || body.startsWith('⚠️')) return;
+    // Skip pesan notifikasi sistem (dikirim oleh notify API) — cegah infinite loop.
+    // Notifikasi selalu multi-line atau panjang; command owner selalu 1 baris pendek (< 60 char).
+    if (body.includes('\n') || body.length > 60) return;
 
     console.log(`\n👑 [OWNER-self] ${body.substring(0, 80)}`);
     try { await handleOwnerCommand(msg, body); } catch (e) { console.error('Owner cmd error:', e.message); }
