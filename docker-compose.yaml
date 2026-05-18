@@ -7,5 +7,7 @@ services:
       - ./data:/app/data
       # Baca listing dari bantukos-bot (read-only)
       - /data/bantukos/bantukos.db:/app/data/bantukos.db:ro
+      # Docker socket untuk owner bersihkan command
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
