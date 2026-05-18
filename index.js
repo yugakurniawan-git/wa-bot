@@ -199,8 +199,8 @@ async function handleOwnerCommand(msg, body) {
     const text = body.trim();
     const lower = text.toLowerCase();
 
-    // #63 atau cek #63 atau cek id 63
-    const idMatch = lower.match(/^#(\d+)$/) || lower.match(/^cek\s+#?(\d+)$/) || lower.match(/^cek\s+id\s+(\d+)$/);
+    // #63 — detail listing langsung
+    const idMatch = lower.match(/^#(\d+)$/);
     if (idMatch) {
         const row = getById(parseInt(idMatch[1]));
         if (!row) return ownerReply(msg, `❌ Listing #${idMatch[1]} tidak ditemukan.`);
@@ -219,66 +219,8 @@ async function handleOwnerCommand(msg, body) {
         return ownerReply(msg, `🔍 *"${keyword}"* — ${rows.length} listing:\n\n${lines.join('\n')}`);
     }
 
-    // list
-    if (lower === 'list' || lower === 'listing') {
-        const rows = getRecentAdmin(15);
-        if (!rows.length) return ownerReply(msg, 'Database kosong.');
-        const lines = rows.map(r => {
-            const c = r.contact ? ` | 📞 ${r.contact}` : '';
-            return `#${r.id} • ${r.location || '—'} • ${r.price || '—'}${c}`;
-        });
-        return ownerReply(msg, `📋 *15 Listing Terbaru*\n\n${lines.join('\n')}`);
-    }
-
-    // verify #63 — mark listing sebagai terverifikasi masih kosong
-    const verifyMatch = lower.match(/^verify\s+#?(\d+)$/);
-    if (verifyMatch) {
-        const id = parseInt(verifyMatch[1]);
-        const row = getById(id);
-        if (!row) return ownerReply(msg, `❌ Listing #${id} tidak ditemukan.`);
-        markVerified(id);
-        return ownerReply(msg, `✅ Listing *#${id}* (${row.location}) ditandai *terverifikasi* — kamar masih kosong.`);
-    }
-
-    // check add [nomor] — manual tambah nomor ke daftar intercept
-    const addMatch = lower.match(/^check add\s+([\d\s\-+.]+)$/);
-    if (addMatch) {
-        const num = normalizePhone(addMatch[1]);
-        if (!num || num.length < 8) return ownerReply(msg, `❌ Format nomor tidak valid: *${addMatch[1].trim()}*`);
-        checkedOwnerNumbers.add(num);
-        // Kalau ada di DB, load juga LID-nya supaya intercept bisa match langsung
-        const listing = getListingByContact(num);
-        if (listing?.contact_lid) checkedOwnerNumbers.add(listing.contact_lid);
-        const lidInfo = listing?.contact_lid ? ` (LID dimuat: ${listing.contact_lid})` : '';
-        return ownerReply(msg, `✅ *${num}* ditambahkan ke daftar intercept.${lidInfo}\nOwner yang balas dari nomor ini → bot akan diam & forwardkan ke sini.`);
-    }
-
-    // check preview — kirim contoh pesan ke self-chat
-    if (lower === 'check preview') {
-        const sample = getListingsToCheck(1)[0] || { location: 'Sesetan, Denpasar', price: 'Rp 800.000/bulan' };
-        const preview = buildOwnerCheckMessage(sample);
-        return ownerReply(msg, `📋 *Contoh pesan yang akan dikirim ke owner:*\n\n${preview}`);
-    }
-
-    // check — lihat listing belum dicek
-    if (lower === 'check' || lower === 'cek owner') {
-        const pending = countPendingCheck();
-        const preview = getListingsToCheck(5);
-        const lines = preview.map(r => `#${r.id} • ${r.location || '—'} • ${r.price || '—'} • 📞 ${r.contact}`);
-        return ownerReply(msg,
-            `📋 *${pending}* listing punya kontak & belum di-WA.\n\n` +
-            (lines.length ? `5 terbaru:\n${lines.join('\n')}\n\n` : '') +
-            `Ketik *check kirim* untuk mulai kirim WA ke owner (max 10).`
-        );
-    }
-
-    // check kirim — kirim WA ke owner listing
-    if (lower === 'check kirim' || lower === 'check send') {
-        return runOwnerCheck(msg, 10);
-    }
-
-    // stat / statistik
-    if (lower === 'stat' || lower === 'statistik' || lower === 'stats') {
+    // stat
+    if (lower === 'stat' || lower === 'stats') {
         const s = getDbStats();
         return ownerReply(msg,
             `📊 *Statistik DB*\n\n` +
@@ -291,10 +233,71 @@ async function handleOwnerCommand(msg, body) {
         );
     }
 
-    // kirim outreach <id> — kirim draft WA langsung ke pencari kos
-    const outreachMatch = lower.match(/^kirim outreach\s+(\w+)$/);
-    if (outreachMatch) {
-        const leadId = outreachMatch[1];
+    // ── owner <sub> ───────────────────────────────────────────────────────────
+
+    // owner list — 15 listing terbaru
+    if (lower === 'owner list') {
+        const rows = getRecentAdmin(15);
+        if (!rows.length) return ownerReply(msg, 'Database kosong.');
+        const lines = rows.map(r => {
+            const c = r.contact ? ` | 📞 ${r.contact}` : '';
+            return `#${r.id} • ${r.location || '—'} • ${r.price || '—'}${c}`;
+        });
+        return ownerReply(msg, `📋 *15 Listing Terbaru*\n\n${lines.join('\n')}`);
+    }
+
+    // owner verify #63 — tandai masih kosong
+    const verifyMatch = lower.match(/^owner verify\s+#?(\d+)$/);
+    if (verifyMatch) {
+        const id = parseInt(verifyMatch[1]);
+        const row = getById(id);
+        if (!row) return ownerReply(msg, `❌ Listing #${id} tidak ditemukan.`);
+        markVerified(id);
+        return ownerReply(msg, `✅ Listing *#${id}* (${row.location}) ditandai *terverifikasi* — kamar masih kosong.`);
+    }
+
+    // owner add <nomor> — tambah nomor ke daftar intercept manual
+    const addMatch = lower.match(/^owner add\s+([\d\s\-+.]+)$/);
+    if (addMatch) {
+        const num = normalizePhone(addMatch[1]);
+        if (!num || num.length < 8) return ownerReply(msg, `❌ Format nomor tidak valid: *${addMatch[1].trim()}*`);
+        checkedOwnerNumbers.add(num);
+        const listing = getListingByContact(num);
+        if (listing?.contact_lid) checkedOwnerNumbers.add(listing.contact_lid);
+        const lidInfo = listing?.contact_lid ? ` (LID dimuat: ${listing.contact_lid})` : '';
+        return ownerReply(msg, `✅ *${num}* ditambahkan ke daftar intercept.${lidInfo}\nOwner yang balas dari nomor ini → bot akan diam & forwardkan ke sini.`);
+    }
+
+    // owner preview — contoh pesan ke owner
+    if (lower === 'owner preview') {
+        const sample = getListingsToCheck(1)[0] || { location: 'Sesetan, Denpasar', price: 'Rp 800.000/bulan' };
+        const preview = buildOwnerCheckMessage(sample);
+        return ownerReply(msg, `📋 *Contoh pesan yang akan dikirim ke owner:*\n\n${preview}`);
+    }
+
+    // owner cek — lihat listing belum dihubungi
+    if (lower === 'owner cek') {
+        const pending = countPendingCheck();
+        const preview = getListingsToCheck(5);
+        const lines = preview.map(r => `#${r.id} • ${r.location || '—'} • ${r.price || '—'} • 📞 ${r.contact}`);
+        return ownerReply(msg,
+            `📋 *${pending}* listing punya kontak & belum di-WA.\n\n` +
+            (lines.length ? `5 terbaru:\n${lines.join('\n')}\n\n` : '') +
+            `Ketik *owner kirim* untuk mulai WA ke owner (max 10).`
+        );
+    }
+
+    // owner kirim — kirim WA ke owner listing
+    if (lower === 'owner kirim') {
+        return runOwnerCheck(msg, 10);
+    }
+
+    // ── lead <sub> ────────────────────────────────────────────────────────────
+
+    // lead kirim <id> — kirim draft WA ke pencari kos
+    const leadMatch = lower.match(/^lead kirim\s+(\w+)$/);
+    if (leadMatch) {
+        const leadId = leadMatch[1];
         const pending = loadOutreachPending();
         const lead = pending[leadId];
         if (!lead) return ownerReply(msg, `❌ Lead *${leadId}* tidak ditemukan atau sudah terkirim.`);
@@ -310,23 +313,25 @@ async function handleOwnerCommand(msg, body) {
                 `_Preview:_\n${lead.draft.substring(0, 120)}...`
             );
         } catch (e) {
-            console.error(`❌ Gagal kirim outreach ${leadId}:`, e.message);
+            console.error(`❌ Gagal kirim lead ${leadId}:`, e.message);
             return ownerReply(msg, `❌ Gagal kirim ke ${lead.wa_number}: ${e.message}`);
         }
     }
 
-    // help flow — panduan alur lengkap
-    if (lower === 'help flow' || lower === 'flow') {
+    // ── help ──────────────────────────────────────────────────────────────────
+
+    // owner flow — panduan alur owner
+    if (lower === 'owner flow') {
         return ownerReply(msg,
             `📋 *Alur Cek Owner Kos*\n\n` +
-            `1️⃣ *check* — lihat siapa yang belum dihubungi\n` +
-            `2️⃣ *check kirim* — bot WA semua owner (max 10)\n` +
+            `1️⃣ *owner cek* — lihat siapa yang belum dihubungi\n` +
+            `2️⃣ *owner kirim* — bot WA semua owner (max 10)\n` +
             `3️⃣ Owner balas → bot diam, forward ke sini\n` +
             `4️⃣a Balasan jelas ("masih ada" dll) → *auto-verify* otomatis ✅\n` +
-            `4️⃣b Balasan ambigu → ketik *verify #id*\n\n` +
+            `4️⃣b Balasan ambigu → ketik *owner verify #id*\n\n` +
             `*WA manual ke owner?*\n` +
-            `→ check add 081234567890\n` +
-            `→ kalau owner konfirmasi kosong, ketik verify #id\n\n` +
+            `→ owner add 081234567890\n` +
+            `→ kalau owner konfirmasi kosong, ketik owner verify #id\n\n` +
             `Ketik *help* untuk semua command.`
         );
     }
@@ -334,22 +339,21 @@ async function handleOwnerCommand(msg, body) {
     // help — semua command
     return ownerReply(msg,
         `🤖 *Admin Commands*\n\n` +
-        `📂 *Data Listing (Owner Kos)*\n` +
-        `• list — 15 listing terbaru\n` +
+        `📂 *Data Listing*\n` +
+        `• owner list — 15 listing terbaru\n` +
         `• cari sesetan — cari by keyword\n` +
         `• #34 — detail listing #34\n` +
         `• stat — statistik database\n\n` +
-        `✉️ *Cek Ketersediaan Owner Kos*\n` +
-        `• check — lihat owner yang belum dihubungi\n` +
-        `• check preview — contoh pesan ke owner\n` +
-        `• check kirim — WA owner kos (max 10)\n` +
-        `• check add 08xxx — tambah nomor manual\n\n` +
-        `✅ *Verifikasi Owner Kos*\n` +
-        `• verify #34 — tandai kamar masih kosong\n\n` +
-        `🎯 *SupportKos Outreach (Pencari Kos)*\n` +
-        `• kirim outreach <id> — kirim draft WA ke pencari kos\n` +
-        `  (id ada di notif outreach yang masuk)\n\n` +
-        `Ketik *help flow* untuk panduan alur lengkap.`
+        `✉️ *Owner Kos*\n` +
+        `• owner cek — lihat yang belum dihubungi\n` +
+        `• owner preview — contoh pesan ke owner\n` +
+        `• owner kirim — WA ke owner kos (max 10)\n` +
+        `• owner add 08xxx — tambah nomor manual\n` +
+        `• owner verify #34 — tandai kamar masih kosong\n` +
+        `• owner flow — panduan alur lengkap\n\n` +
+        `🎯 *Lead (Pencari Kos)*\n` +
+        `• lead kirim <id> — kirim draft WA ke pencari kos\n` +
+        `  _(id muncul di notif outreach yang masuk)_`
     );
 }
 
