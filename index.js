@@ -588,9 +588,9 @@ const notifyServer = http.createServer((req, res) => {
                 console.log(`📋 Outreach lead saved: ${outreach_lead.id} → ${outreach_lead.wa_number}`);
             }
 
-            // system: true  → kirim ke OWNER_NOTIFY_NUMBER (disk alert, dll.) supaya ada sound
-            // default       → kirim ke selfJid (Saved Messages), untuk outreach notif biasa
-            const target = (system && NOTIFY_TARGET_JID) ? NOTIFY_TARGET_JID : selfJid;
+            // Semua notif ke WA Pribadi owner (OWNER_NUMBER).
+            // OWNER_NOTIFY_NUMBER sebagai override kalau beda nomor.
+            const target = NOTIFY_TARGET_JID || OWNER_JID || selfJid;
             await client.sendMessage(target, message);
             console.log(`🔔 Notif → ${target}: ${message.substring(0, 60)}`);
             res.writeHead(200); res.end('ok');
