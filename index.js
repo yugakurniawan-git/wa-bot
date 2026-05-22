@@ -313,6 +313,12 @@ async function handleOwnerCommand(msg, body) {
             delete pending[leadId];
             saveOutreachPending(pending);
             console.log(`✅ Outreach sent to ${lead.wa_number} (lead ${leadId})`);
+
+            // Callback ke bantukos-bot untuk tandai lead sebagai contacted di DB
+            const botUrl = process.env.BANTUKOS_BOT_URL || 'http://bantukos-bot:8001';
+            fetch(`${botUrl}/contacted?wa=${lead.wa_number}`, { method: 'POST' })
+                .catch(() => {}); // non-blocking, gagal tidak masalah
+
             return ownerReply(msg,
                 `✅ Pesan terkirim ke *${lead.wa_number}*\n\n` +
                 `_Preview:_\n${lead.draft.substring(0, 120)}...`
@@ -320,6 +326,37 @@ async function handleOwnerCommand(msg, body) {
         } catch (e) {
             console.error(`❌ Gagal kirim lead ${leadId}:`, e.message);
             return ownerReply(msg, `❌ Gagal kirim ke ${lead.wa_number}: ${e.message}`);
+        }
+    }
+
+    // dm kirim <id> — auto DM Facebook via Playwright di bantukos-bot
+    const dmMatch = lower.match(/^dm kirim\s+(\w+)$/);
+    if (dmMatch) {
+        const dmId = dmMatch[1];
+        const fbPending = loadFbDmPending();
+        const lead = fbPending[dmId];
+        if (!lead) return ownerReply(msg, `❌ FB DM lead *${dmId}* tidak ditemukan atau sudah terkirim.`);
+
+        await ownerReply(msg, `⏳ Membuka Facebook Messenger dan mengirim DM...`);
+        const botUrl = process.env.BANTUKOS_BOT_URL || 'http://bantukos-bot:8001';
+        try {
+            const resp = await fetch(`${botUrl}/send-fb-dm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profile_url: lead.profile_url, draft: lead.draft }),
+                signal: AbortSignal.timeout(90000), // 90 detik — Playwright butuh waktu
+            });
+            if (resp.ok) {
+                delete fbPending[dmId];
+                saveFbDmPending(fbPending);
+                console.log(`✅ FB DM sent (lead ${dmId}) → ${lead.profile_url}`);
+                return ownerReply(msg, `✅ *DM Facebook terkirim!*\n\nPesan sudah dikirim ke:\n${lead.profile_url}`);
+            } else {
+                const errText = await resp.text();
+                return ownerReply(msg, `❌ Gagal kirim FB DM: ${errText}`);
+            }
+        } catch (e) {
+            return ownerReply(msg, `❌ Gagal hubungi bot: ${e.message}`);
         }
     }
 
@@ -358,6 +395,7 @@ async function handleOwnerCommand(msg, body) {
         `• owner flow — panduan alur lengkap\n\n` +
         `🎯 *Lead (Pencari Kos)*\n` +
         `• lead kirim <id> — kirim draft WA ke pencari kos\n` +
+        `• dm kirim <id>   — auto DM Facebook ke lead (via bot)\n` +
         `  _(id muncul di notif outreach yang masuk)_\n\n` +
         `🖥️ *Server*\n` +
         `• owner bersihkan — hapus Docker images/cache tidak terpakai`
@@ -537,9 +575,8 @@ async function runDockerCleanup(replyMsg) {
 }
 
 // ── Outreach pending store ────────────────────────────────────────────────────
-// Menyimpan draft WA outreach yang menunggu konfirmasi owner (reply "kirim outreach <id>")
-// Format: { [id]: { wa_number, draft, created_at } }
 const OUTREACH_PENDING_FILE = path.join('data', 'outreach_pending.json');
+const FB_DM_PENDING_FILE    = path.join('data', 'fb_dm_pending.json');
 
 function loadOutreachPending() {
     try { return JSON.parse(fs.readFileSync(OUTREACH_PENDING_FILE, 'utf8')); }
@@ -548,6 +585,14 @@ function loadOutreachPending() {
 function saveOutreachPending(data) {
     try { fs.writeFileSync(OUTREACH_PENDING_FILE, JSON.stringify(data, null, 2)); }
     catch (e) { console.error('Failed to save outreach pending:', e.message); }
+}
+function loadFbDmPending() {
+    try { return JSON.parse(fs.readFileSync(FB_DM_PENDING_FILE, 'utf8')); }
+    catch { return {}; }
+}
+function saveFbDmPending(data) {
+    try { fs.writeFileSync(FB_DM_PENDING_FILE, JSON.stringify(data, null, 2)); }
+    catch (e) { console.error('Failed to save fb_dm pending:', e.message); }
 }
 
 // ── HTTP Notify API ──────────────────────────────────────────────────────────
@@ -564,19 +609,50 @@ const OWNER_JID = `${(process.env.OWNER_NUMBER || '').replace(/\D/g, '')}@c.us`;
 const _notifyNum = (process.env.OWNER_NOTIFY_NUMBER || '').replace(/\D/g, '').replace(/^0/, '62');
 const NOTIFY_TARGET_JID = _notifyNum ? `${_notifyNum}@c.us` : null;
 
+// Queue untuk notify agar sendMessage() tidak memblokir HTTP response
+const _notifyQueue = [];
+let _notifyProcessing = false;
+
+async function _processNotifyQueue() {
+    if (_notifyProcessing) return;
+    _notifyProcessing = true;
+    while (_notifyQueue.length > 0) {
+        const { target, message } = _notifyQueue.shift();
+        try {
+            await client.sendMessage(target, message);
+            console.log(`🔔 Notif → ${target}: ${message.substring(0, 60)}`);
+        } catch (e) {
+            console.error('Notify send error:', e.message);
+        }
+        // Jeda kecil antar pesan supaya WA tidak throttle
+        await new Promise(r => setTimeout(r, 500));
+    }
+    _notifyProcessing = false;
+}
+
 const notifyServer = http.createServer((req, res) => {
+    // GET /kos/:id — lookup kos dari DB untuk admin SupportKos
+    const kosMatch = req.url.match(/^\/kos\/(\d+)$/);
+    if (req.method === 'GET' && kosMatch) {
+        const row = getById(parseInt(kosMatch[1]));
+        res.writeHead(row ? 200 : 404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(row || { error: 'Not found' }));
+        return;
+    }
+
     if (req.method !== 'POST' || req.url !== '/notify') {
         res.writeHead(404); res.end('Not Found'); return;
     }
     let body = '';
     req.on('data', d => { body += d; });
-    req.on('end', async () => {
+    req.on('end', () => {
         try {
-            const { message, system, outreach_lead } = JSON.parse(body);
+            const parsed = JSON.parse(body);
+            const { message, system, outreach_lead } = parsed;
             if (!message) { res.writeHead(400); res.end('missing message'); return; }
             if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
 
-            // Simpan pending outreach lead kalau ada
+            // Simpan pending WA outreach lead
             if (outreach_lead?.id && outreach_lead?.wa_number && outreach_lead?.draft) {
                 const pending = loadOutreachPending();
                 pending[outreach_lead.id] = {
@@ -588,12 +664,26 @@ const notifyServer = http.createServer((req, res) => {
                 console.log(`📋 Outreach lead saved: ${outreach_lead.id} → ${outreach_lead.wa_number}`);
             }
 
-            // system: true  → kirim ke OWNER_NOTIFY_NUMBER (disk alert, token, dll.) supaya ada sound
-            // default       → kirim ke selfJid (Saved Messages WA Bisnis), untuk outreach lead
-            const target = (system && NOTIFY_TARGET_JID) ? NOTIFY_TARGET_JID : selfJid;
-            await client.sendMessage(target, message);
-            console.log(`🔔 Notif → ${target}: ${message.substring(0, 60)}`);
+            // Simpan pending FB DM lead
+            const fb_dm_lead = parsed.fb_dm_lead;
+            if (fb_dm_lead?.id && fb_dm_lead?.profile_url && fb_dm_lead?.draft) {
+                const fbPending = loadFbDmPending();
+                fbPending[fb_dm_lead.id] = {
+                    profile_url: fb_dm_lead.profile_url,
+                    draft: fb_dm_lead.draft,
+                    created_at: new Date().toISOString(),
+                };
+                saveFbDmPending(fbPending);
+                console.log(`📋 FB DM lead saved: ${fb_dm_lead.id} → ${fb_dm_lead.profile_url}`);
+            }
+
+            // Respond 200 segera — jangan tunggu sendMessage() selesai
             res.writeHead(200); res.end('ok');
+
+            // Antre pesan, proses di background
+            const target = (system && NOTIFY_TARGET_JID) ? NOTIFY_TARGET_JID : selfJid;
+            _notifyQueue.push({ target, message });
+            _processNotifyQueue();
         } catch (e) {
             console.error('Notify error:', e.message);
             res.writeHead(500); res.end(e.message);
