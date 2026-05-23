@@ -648,7 +648,7 @@ const notifyServer = http.createServer((req, res) => {
     req.on('end', () => {
         try {
             const parsed = JSON.parse(body);
-            const { message, system, outreach_lead } = parsed;
+            const { message, system, outreach_lead, targetWa } = parsed;
             if (!message) { res.writeHead(400); res.end('missing message'); return; }
             if (!selfJid) { res.writeHead(503); res.end('WA not ready'); return; }
 
@@ -680,8 +680,20 @@ const notifyServer = http.createServer((req, res) => {
             // Respond 200 segera — jangan tunggu sendMessage() selesai
             res.writeHead(200); res.end('ok');
 
-            // Antre pesan, proses di background
-            const target = (system && NOTIFY_TARGET_JID) ? NOTIFY_TARGET_JID : selfJid;
+            // Tentukan target penerima:
+            // 1. targetWa eksplisit (mis. dari SupportKos publish ke client) → pakai itu
+            // 2. system: true → kirim ke OWNER_NOTIFY_NUMBER
+            // 3. default → kirim ke akun bot sendiri (selfJid)
+            let target;
+            const cleanTarget = String(targetWa || '').replace(/\D/g, '');
+            if (cleanTarget.length >= 10 && cleanTarget.length <= 15) {
+                target = cleanTarget + '@c.us';
+                console.log(`📤 Notify → client ${cleanTarget}`);
+            } else if (system && NOTIFY_TARGET_JID) {
+                target = NOTIFY_TARGET_JID;
+            } else {
+                target = selfJid;
+            }
             _notifyQueue.push({ target, message });
             _processNotifyQueue();
         } catch (e) {
