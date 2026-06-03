@@ -4,8 +4,9 @@
  * Scan QR sekali → sesi tersimpan, tidak perlu scan ulang kecuali logout.
  */
 require('dotenv').config();
-const fs = require('fs');
+const fs   = require('fs');
 const path = require('path');
+const { execFile, spawn } = require('child_process');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 
@@ -233,6 +234,53 @@ async function handleOwnerCommand(msg, body) {
         );
     }
 
+    // ── fb renew ──────────────────────────────────────────────────────────────
+    // Jalankan virtual desktop (noVNC) untuk renew session Facebook
+    if (lower === 'fb renew' || lower === 'renew fb') {
+        ownerReply(msg, '🖥️ Memulai virtual desktop...');
+
+        // Matikan instance lama kalau ada
+        require('child_process').execSync(
+            'pkill -f fb-renew 2>/dev/null; pkill -f Xvfb 2>/dev/null; pkill -f x11vnc 2>/dev/null; pkill -f websockify 2>/dev/null; true',
+            { stdio: 'ignore' }
+        );
+
+        // Jalankan script di background
+        const proc = spawn('bash', ['/root/fb-renew.sh'], {
+            detached: true,
+            stdio: 'ignore',
+        });
+        proc.unref();
+
+        // Tunggu sebentar lalu konfirmasi
+        await new Promise(r => setTimeout(r, 4000));
+
+        return ownerReply(msg,
+            `✅ *Virtual Desktop Siap!*\n\n` +
+            `Buka di browser HP kamu:\n` +
+            `🔗 http://43.134.47.99:6080/vnc.html\n\n` +
+            `🔑 Password VNC: *bantukos*\n\n` +
+            `Langkah selanjutnya:\n` +
+            `1. Connect → masukkan password\n` +
+            `2. Klik kanan desktop → Open Terminal\n` +
+            `3. Jalankan: \`DISPLAY=:1 google-chrome-stable --no-sandbox &\`\n` +
+            `4. Login ke Facebook\n` +
+            `5. Di terminal: \`cd /root/bantukos-bot && DISPLAY=:1 venv/bin/python facebook.py --export-session\`\n` +
+            `6. Tekan Enter → selesai! ✅\n\n` +
+            `Kirim *fb stop* kalau sudah selesai.`
+        );
+    }
+
+    // ── fb stop ────────────────────────────────────────────────────────────────
+    // Matikan virtual desktop setelah selesai renew
+    if (lower === 'fb stop') {
+        require('child_process').execSync(
+            'pkill -f Xvfb 2>/dev/null; pkill -f x11vnc 2>/dev/null; pkill -f websockify 2>/dev/null; pkill -f fluxbox 2>/dev/null; true',
+            { stdio: 'ignore' }
+        );
+        return ownerReply(msg, '🛑 Virtual desktop dimatikan. Session FB baru siap dipakai bot!');
+    }
+
     // ── owner <sub> ───────────────────────────────────────────────────────────
 
     // owner list — 15 listing terbaru
@@ -386,6 +434,9 @@ async function handleOwnerCommand(msg, body) {
         `• cari sesetan — cari by keyword\n` +
         `• #34 — detail listing #34\n` +
         `• stat — statistik database\n\n` +
+        `🔧 *Server*\n` +
+        `• fb renew — buka virtual desktop untuk renew FB session\n` +
+        `• fb stop — matikan virtual desktop\n\n` +
         `✉️ *Owner Kos*\n` +
         `• owner cek — lihat yang belum dihubungi\n` +
         `• owner preview — contoh pesan ke owner\n` +
