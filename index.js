@@ -252,8 +252,8 @@ async function handleOwnerCommand(msg, body) {
         });
         proc.unref();
 
-        // Tunggu sebentar lalu konfirmasi
-        await new Promise(r => setTimeout(r, 4000));
+        // Tunggu script selesai start semua service
+        await new Promise(r => setTimeout(r, 6000));
 
         return ownerReply(msg,
             `✅ *Virtual Desktop Siap!*\n\n` +
