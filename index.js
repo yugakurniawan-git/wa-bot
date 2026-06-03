@@ -238,11 +238,13 @@ async function handleOwnerCommand(msg, body) {
     if (lower === 'fb renew' || lower === 'renew fb') {
         ownerReply(msg, '🖥️ Memulai virtual desktop...');
 
-        // Matikan instance lama kalau ada
-        require('child_process').execSync(
-            'pkill -f fb-renew 2>/dev/null; pkill -f Xvfb 2>/dev/null; pkill -f x11vnc 2>/dev/null; pkill -f websockify 2>/dev/null; true',
-            { stdio: 'ignore' }
-        );
+        // Matikan instance lama kalau ada — abaikan error kalau tidak ada proses
+        try {
+            require('child_process').execSync(
+                'pkill -f Xvfb; pkill -f x11vnc; pkill -f websockify; pkill -f fluxbox',
+                { stdio: 'ignore' }
+            );
+        } catch (_) { /* tidak ada proses lama, lanjut */ }
 
         // Jalankan script di background
         const proc = spawn('bash', ['/root/fb-renew.sh'], {
