@@ -48,12 +48,6 @@ const client = new Client({
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            '--disable-software-rasterizer',
-            '--disable-extensions',
-            '--disable-background-networking',
-            '--disable-default-apps',
-            '--no-first-run',
-            '--no-zygote',
         ],
     },
 });
